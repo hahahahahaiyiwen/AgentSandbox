@@ -7,7 +7,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void CreateDirectory_CreatesDirectoryAndParents()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         
         fs.CreateDirectory("/a/b/c");
         
@@ -20,7 +20,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void WriteFile_CreatesFileWithContent()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         
         fs.WriteFile("/test.txt", "Hello, World!");
         
@@ -32,7 +32,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void WriteFile_CreatesParentDirectories()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         
         fs.WriteFile("/a/b/file.txt", "content");
         
@@ -44,7 +44,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void ReadFile_ThrowsForNonexistentFile()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         
         Assert.Throws<FileNotFoundException>(() => fs.ReadFile("/nonexistent", System.Text.Encoding.UTF8));
     }
@@ -52,7 +52,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void ReadFile_ThrowsForDirectory()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         fs.CreateDirectory("/dir");
         
         Assert.Throws<InvalidOperationException>(() => fs.ReadFile("/dir", System.Text.Encoding.UTF8));
@@ -61,7 +61,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void ListDirectory_ReturnsImmediateChildren()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         fs.WriteFile("/a/file1.txt", "1");
         fs.WriteFile("/a/file2.txt", "2");
         fs.CreateDirectory("/a/subdir");
@@ -79,7 +79,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void Delete_RemovesFile()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         fs.WriteFile("/file.txt", "content");
         
         fs.Delete("/file.txt");
@@ -90,7 +90,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void Delete_ThrowsForNonEmptyDirectory()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         fs.WriteFile("/dir/file.txt", "content");
         
         Assert.Throws<InvalidOperationException>(() => fs.Delete("/dir"));
@@ -99,7 +99,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void Delete_RecursiveRemovesDirectoryWithContents()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         fs.WriteFile("/dir/file.txt", "content");
         fs.WriteFile("/dir/sub/nested.txt", "nested");
         
@@ -113,7 +113,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void Copy_CopiesFile()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         fs.WriteFile("/source.txt", "content");
         
         fs.Copy("/source.txt", "/dest.txt");
@@ -126,7 +126,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void Move_MovesFile()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         fs.WriteFile("/source.txt", "content");
         
         fs.Move("/source.txt", "/dest.txt");
@@ -152,7 +152,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void Snapshot_And_Restore_PreservesState()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         fs.WriteFile("/file1.txt", "content1");
         fs.WriteFile("/dir/file2.txt", "content2");
         
@@ -174,7 +174,7 @@ public class VirtualFileSystemTests
     [Fact]
     public void GetTotalSize_ReturnsCorrectSize()
     {
-        var fs = new VirtualFileSystem();
+        var fs = new FileSystem();
         fs.WriteFile("/a.txt", "12345");
         fs.WriteFile("/b.txt", "123");
         

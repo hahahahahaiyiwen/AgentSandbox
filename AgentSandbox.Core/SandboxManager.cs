@@ -1,13 +1,13 @@
 using System.Collections.Concurrent;
 
-namespace AgentSandbox.Core.Sandbox;
+namespace AgentSandbox.Core;
 
 /// <summary>
 /// Manages multiple sandbox instances. Thread-safe singleton for server-side usage.
 /// </summary>
 public class SandboxManager
 {
-    private readonly ConcurrentDictionary<string, AgentSandboxInstance> _sandboxes = new();
+    private readonly ConcurrentDictionary<string, Sandbox> _sandboxes = new();
     private readonly SandboxOptions _defaultOptions;
     private readonly TimeSpan _inactivityTimeout;
 
@@ -20,9 +20,9 @@ public class SandboxManager
     /// <summary>
     /// Creates a new sandbox instance.
     /// </summary>
-    public AgentSandboxInstance Create(string? id = null, SandboxOptions? options = null)
+    public Sandbox Create(string? id = null, SandboxOptions? options = null)
     {
-        var sandbox = new AgentSandboxInstance(id, options ?? _defaultOptions);
+        var sandbox = new Sandbox(id, options ?? _defaultOptions, OnSandboxDisposed);
         
         if (!_sandboxes.TryAdd(sandbox.Id, sandbox))
         {
@@ -36,7 +36,7 @@ public class SandboxManager
     /// <summary>
     /// Gets an existing sandbox by ID.
     /// </summary>
-    public AgentSandboxInstance? Get(string id)
+    public Sandbox? Get(string id)
     {
         return _sandboxes.TryGetValue(id, out var sandbox) ? sandbox : null;
     }
@@ -44,9 +44,9 @@ public class SandboxManager
     /// <summary>
     /// Gets or creates a sandbox with the given ID.
     /// </summary>
-    public AgentSandboxInstance GetOrCreate(string id, SandboxOptions? options = null)
+    public Sandbox GetOrCreate(string id, SandboxOptions? options = null)
     {
-        return _sandboxes.GetOrAdd(id, _ => new AgentSandboxInstance(id, options ?? _defaultOptions));
+        return _sandboxes.GetOrAdd(id, _ => new Sandbox(id, options ?? _defaultOptions, OnSandboxDisposed));
     }
 
     /// <summary>
@@ -60,6 +60,14 @@ public class SandboxManager
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Called when a sandbox is disposed directly (not via Destroy).
+    /// </summary>
+    private void OnSandboxDisposed(string id)
+    {
+        _sandboxes.TryRemove(id, out _);
     }
 
     /// <summary>

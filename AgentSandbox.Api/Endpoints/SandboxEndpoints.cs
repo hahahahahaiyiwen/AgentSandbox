@@ -1,5 +1,5 @@
 using AgentSandbox.Api.Models;
-using AgentSandbox.Core.Sandbox;
+using AgentSandbox.Core;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgentSandbox.Api.Endpoints;
@@ -41,19 +41,6 @@ public static class SandboxEndpoints
         group.MapGet("/{id}/history", GetHistory)
             .WithName("GetCommandHistory")
             .WithDescription("Gets the command execution history");
-
-        // File operations
-        group.MapGet("/{id}/fs", ReadFile)
-            .WithName("ReadFile")
-            .WithDescription("Reads a file from the virtual filesystem");
-
-        group.MapPut("/{id}/fs", WriteFile)
-            .WithName("WriteFile")
-            .WithDescription("Writes a file to the virtual filesystem");
-
-        group.MapGet("/{id}/ls", ListDirectory)
-            .WithName("ListDirectory")
-            .WithDescription("Lists contents of a directory");
 
         // Snapshot operations
         group.MapPost("/{id}/snapshot", CreateSnapshot)
@@ -198,20 +185,19 @@ public static class SandboxEndpoints
 
         try
         {
-            var content = sandbox.ReadFile(path);
-            var entry = sandbox.FileSystem.GetEntry(path);
+            var result = sandbox.Execute($"cat \"{path}\"");
+            if (!result.Success)
+            {
+                return Results.NotFound(new ErrorResponse($"File '{path}' not found", 404));
+            }
             
             return Results.Ok(new FileContentResponse(
                 path,
-                content,
-                entry?.Content.Length ?? 0
+                result.Stdout,
+                System.Text.Encoding.UTF8.GetByteCount(result.Stdout)
             ));
         }
-        catch (FileNotFoundException)
-        {
-            return Results.NotFound(new ErrorResponse($"File '{path}' not found", 404));
-        }
-        catch (InvalidOperationException ex)
+        catch (Exception ex)
         {
             return Results.BadRequest(new ErrorResponse(ex.Message, 400));
         }
@@ -228,10 +214,18 @@ public static class SandboxEndpoints
 
         try
         {
-            sandbox.WriteFile(request.Path, request.Content);
+            // Escape content for echo command
+            var escapedContent = request.Content.Replace("'", "'\\''");
+            var result = sandbox.Execute($"echo '{escapedContent}' > \"{request.Path}\"");
+            
+            if (!result.Success)
+            {
+                return Results.BadRequest(new ErrorResponse(result.Stderr, 400));
+            }
+            
             return Results.Ok(new { path = request.Path, success = true });
         }
-        catch (InvalidOperationException ex)
+        catch (Exception ex)
         {
             return Results.BadRequest(new ErrorResponse(ex.Message, 400));
         }
@@ -248,25 +242,36 @@ public static class SandboxEndpoints
 
         try
         {
-            var targetPath = path ?? sandbox.Shell.CurrentDirectory;
-            var entries = sandbox.ListDirectory(targetPath)
-                .Select(name =>
+            var pwdResult = sandbox.Execute("pwd");
+            var targetPath = path ?? pwdResult.Stdout.Trim();
+            
+            var result = sandbox.Execute($"ls -l \"{targetPath}\"");
+            if (!result.Success)
+            {
+                return Results.NotFound(new ErrorResponse($"Directory '{path}' not found", 404));
+            }
+
+            // Parse ls output into entries
+            var entries = result.Stdout
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line =>
                 {
-                    var fullPath = targetPath == "/" ? "/" + name : targetPath + "/" + name;
-                    var entry = sandbox.FileSystem.GetEntry(fullPath);
-                    return new DirectoryEntry(
-                        name,
-                        entry?.IsDirectory ?? false,
-                        entry?.Content.Length ?? 0,
-                        entry?.ModifiedAt ?? DateTime.UtcNow
-                    );
+                    var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 4)
+                    {
+                        var isDir = parts[0].StartsWith("d");
+                        var size = long.TryParse(parts[1], out var s) ? s : 0;
+                        var name = parts[^1];
+                        return new DirectoryEntry(name, isDir, size, DateTime.UtcNow);
+                    }
+                    return new DirectoryEntry(line, false, 0, DateTime.UtcNow);
                 });
 
             return Results.Ok(new DirectoryListingResponse(targetPath, entries));
         }
-        catch (DirectoryNotFoundException)
+        catch (Exception ex)
         {
-            return Results.NotFound(new ErrorResponse($"Directory '{path}' not found", 404));
+            return Results.BadRequest(new ErrorResponse(ex.Message, 400));
         }
     }
 

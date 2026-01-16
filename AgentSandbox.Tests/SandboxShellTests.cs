@@ -5,12 +5,12 @@ namespace AgentSandbox.Tests;
 
 public class SandboxShellTests
 {
-    private readonly VirtualFileSystem _fs;
+    private readonly FileSystem _fs;
     private readonly SandboxShell _shell;
 
     public SandboxShellTests()
     {
-        _fs = new VirtualFileSystem();
+        _fs = new FileSystem();
         _shell = new SandboxShell(_fs);
     }
 

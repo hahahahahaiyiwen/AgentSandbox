@@ -223,6 +223,65 @@ dotnet build
 dotnet test
 ```
 
+## Building and Referencing as a NuGet Package
+
+### Build the Package
+
+```bash
+# Pack the core library
+dotnet pack AgentSandbox.Core -c Release -o ./nupkgs
+
+# Pack the Semantic Kernel integration (optional)
+dotnet pack AgentSandbox.SemanticKernel -c Release -o ./nupkgs
+```
+
+### Reference in Your Project
+
+**Option 1: Local Package Source**
+
+Add a local NuGet source pointing to the `nupkgs` folder:
+
+```bash
+# Add local source
+dotnet nuget add source ./path/to/AgentSandbox/nupkgs --name LocalPackages
+
+# Add package reference
+dotnet add package AgentSandbox.Core
+dotnet add package AgentSandbox.SemanticKernel  # For Semantic Kernel integration
+```
+
+**Option 2: Direct Project Reference**
+
+Reference the project directly in your `.csproj`:
+
+```xml
+<ItemGroup>
+  <ProjectReference Include="../AgentSandbox/AgentSandbox.Core/AgentSandbox.Core.csproj" />
+  <!-- For Semantic Kernel integration -->
+  <ProjectReference Include="../AgentSandbox/AgentSandbox.SemanticKernel/AgentSandbox.SemanticKernel.csproj" />
+</ItemGroup>
+```
+
+**Option 3: nuget.config for Local Feed**
+
+Create or update `nuget.config` in your solution root:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+    <add key="LocalPackages" value="./path/to/AgentSandbox/nupkgs" />
+  </packageSources>
+</configuration>
+```
+
+Then add the package reference:
+
+```bash
+dotnet add package AgentSandbox.Core
+```
+
 ## License
 
 MIT

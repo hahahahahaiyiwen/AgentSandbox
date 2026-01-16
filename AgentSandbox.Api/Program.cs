@@ -1,5 +1,5 @@
 using AgentSandbox.Api.Endpoints;
-using AgentSandbox.Core.Sandbox;
+using AgentSandbox.Core;
 
 var builder = WebApplication.CreateBuilder(args);
 

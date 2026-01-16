@@ -8,16 +8,27 @@ namespace AgentSandbox.Core.Shell;
 /// <summary>
 /// A sandboxed shell that executes commands against a virtual filesystem.
 /// Emulates common Unix commands without touching the real filesystem.
+/// Supports extensibility via IShellCommand registration.
 /// </summary>
-public class SandboxShell
+public class SandboxShell : ISandboxShell, IShellContext
 {
     private readonly IFileSystem _fs;
     private string _currentDirectory = "/";
     private readonly Dictionary<string, string> _environment = new();
-    private readonly Dictionary<string, Func<string[], ShellResult>> _commands;
+    private readonly Dictionary<string, Func<string[], ShellResult>> _builtinCommands;
+    private readonly Dictionary<string, IShellCommand> _extensionCommands = new();
 
-    public string CurrentDirectory => _currentDirectory;
+    public string CurrentDirectory
+    {
+        get => _currentDirectory;
+        set => _currentDirectory = FileSystemPath.Normalize(value);
+    }
+    
     public IReadOnlyDictionary<string, string> Environment => _environment;
+    
+    // IShellContext implementation
+    IFileSystem IShellContext.FileSystem => _fs;
+    IDictionary<string, string> IShellContext.Environment => _environment;
 
     public SandboxShell(IFileSystem fileSystem)
     {
@@ -27,7 +38,7 @@ public class SandboxShell
         _environment["PATH"] = "/bin:/usr/bin";
         _environment["PWD"] = _currentDirectory;
 
-        _commands = new Dictionary<string, Func<string[], ShellResult>>
+        _builtinCommands = new Dictionary<string, Func<string[], ShellResult>>
         {
             ["pwd"] = CmdPwd,
             ["cd"] = CmdCd,
@@ -50,6 +61,43 @@ public class SandboxShell
             ["help"] = CmdHelp,
         };
     }
+
+    #region Command Registration
+
+    /// <summary>
+    /// Registers a shell command extension.
+    /// </summary>
+    public void RegisterCommand(IShellCommand command)
+    {
+        _extensionCommands[command.Name.ToLowerInvariant()] = command;
+        foreach (var alias in command.Aliases)
+        {
+            _extensionCommands[alias.ToLowerInvariant()] = command;
+        }
+    }
+
+    /// <summary>
+    /// Registers multiple shell command extensions.
+    /// </summary>
+    public void RegisterCommands(IEnumerable<IShellCommand> commands)
+    {
+        foreach (var command in commands)
+        {
+            RegisterCommand(command);
+        }
+    }
+
+    /// <summary>
+    /// Gets all available command names (built-in and extensions).
+    /// </summary>
+    public IEnumerable<string> GetAvailableCommands()
+    {
+        return _builtinCommands.Keys
+            .Concat(_extensionCommands.Values.Select(c => c.Name).Distinct())
+            .OrderBy(c => c);
+    }
+
+    #endregion
 
     /// <summary>
     /// Resolves a path relative to the current directory.
@@ -76,6 +124,26 @@ public class SandboxShell
         if (string.IsNullOrWhiteSpace(commandLine))
             return ShellResult.Ok();
 
+        // Check for output redirection
+        string? redirectFile = null;
+        bool appendMode = false;
+        var redirectIndex = commandLine.IndexOf(">>");
+        if (redirectIndex > 0)
+        {
+            appendMode = true;
+            redirectFile = commandLine[(redirectIndex + 2)..].Trim().Trim('"', '\'');
+            commandLine = commandLine[..redirectIndex].Trim();
+        }
+        else
+        {
+            redirectIndex = commandLine.IndexOf('>');
+            if (redirectIndex > 0)
+            {
+                redirectFile = commandLine[(redirectIndex + 1)..].Trim().Trim('"', '\'');
+                commandLine = commandLine[..redirectIndex].Trim();
+            }
+        }
+
         // Simple command parsing (doesn't handle all edge cases)
         var parts = ParseCommandLine(commandLine);
         if (parts.Length == 0)
@@ -85,7 +153,9 @@ public class SandboxShell
         var args = parts.Skip(1).ToArray();
 
         ShellResult result;
-        if (_commands.TryGetValue(cmd, out var handler))
+        
+        // Check built-in commands first
+        if (_builtinCommands.TryGetValue(cmd, out var handler))
         {
             try
             {
@@ -96,9 +166,43 @@ public class SandboxShell
                 result = ShellResult.Error($"{cmd}: {ex.Message}");
             }
         }
+        // Then check extension commands
+        else if (_extensionCommands.TryGetValue(cmd, out var extCommand))
+        {
+            try
+            {
+                result = extCommand.Execute(args, this);
+            }
+            catch (Exception ex)
+            {
+                result = ShellResult.Error($"{cmd}: {ex.Message}");
+            }
+        }
         else
         {
             result = ShellResult.Error($"{cmd}: command not found", 127);
+        }
+
+        // Handle output redirection
+        if (redirectFile != null && result.Success && !string.IsNullOrEmpty(result.Stdout))
+        {
+            try
+            {
+                var path = ResolvePath(redirectFile);
+                if (appendMode)
+                {
+                    _fs.AppendToFile(path, result.Stdout);
+                }
+                else
+                {
+                    _fs.WriteFile(path, result.Stdout);
+                }
+                result = ShellResult.Ok(); // Clear stdout since it was redirected
+            }
+            catch (Exception ex)
+            {
+                result = ShellResult.Error($"redirect: {ex.Message}");
+            }
         }
 
         result.Command = commandLine;
@@ -266,7 +370,7 @@ public class SandboxShell
             if (_fs.IsDirectory(path))
                 return ShellResult.Error($"cat: {arg}: Is a directory");
 
-            output.Append(_fs.ReadFile(path, System.Text.Encoding.UTF8));
+            output.Append(_fs.ReadFile(path, Encoding.UTF8));
         }
 
         return ShellResult.Ok(output.ToString());

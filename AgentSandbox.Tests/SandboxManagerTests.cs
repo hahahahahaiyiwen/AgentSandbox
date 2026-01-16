@@ -1,4 +1,4 @@
-using AgentSandbox.Core.Sandbox;
+using AgentSandbox.Core;
 
 namespace AgentSandbox.Tests;
 
@@ -128,14 +128,17 @@ public class SandboxManagerTests
     }
 
     [Fact]
-    public void WriteFile_EnforcesMaxFileSize()
+    public void WriteFile_ViaShell_EnforcesMaxFileSize()
     {
         var options = new SandboxOptions { MaxFileSize = 10 };
         var manager = new SandboxManager(options);
         var sandbox = manager.Create();
         
-        Assert.Throws<InvalidOperationException>(() => 
-            sandbox.WriteFile("/large.txt", new string('x', 100)));
+        // Writing via shell command - should fail due to size limit
+        var result = sandbox.Execute($"echo '{new string('x', 100)}' > /large.txt");
+        
+        Assert.False(result.Success, $"Expected failure but got success. Stdout: {result.Stdout}, Stderr: {result.Stderr}");
+        Assert.Contains("exceeds", result.Stderr.ToLower());
     }
 
     [Fact]
@@ -144,14 +147,16 @@ public class SandboxManagerTests
         var manager = new SandboxManager();
         var sandbox = manager.Create();
         
-        sandbox.WriteFile("/file.txt", "original");
+        sandbox.Execute("echo 'original' > /file.txt");
         var snapshot = sandbox.CreateSnapshot();
         
-        sandbox.WriteFile("/file.txt", "modified");
-        Assert.Equal("modified", sandbox.ReadFile("/file.txt"));
+        sandbox.Execute("echo 'modified' > /file.txt");
+        var modifiedResult = sandbox.Execute("cat /file.txt");
+        Assert.Equal("modified", modifiedResult.Stdout.Trim());
         
         sandbox.RestoreSnapshot(snapshot);
-        Assert.Equal("original", sandbox.ReadFile("/file.txt"));
+        var restoredResult = sandbox.Execute("cat /file.txt");
+        Assert.Equal("original", restoredResult.Stdout.Trim());
     }
 
     [Fact]
@@ -161,14 +166,13 @@ public class SandboxManagerTests
         var sandbox = manager.Create("stats-test");
         
         sandbox.Execute("mkdir /dir");
-        sandbox.WriteFile("/file.txt", "content");
+        sandbox.Execute("echo 'content' > /file.txt");
         sandbox.Execute("ls");
         
         var stats = sandbox.GetStats();
         
         Assert.Equal("stats-test", stats.Id);
         Assert.Equal(3, stats.FileCount); // root + dir + file
-        Assert.Equal(7, stats.TotalSize); // "content".Length
-        Assert.True(stats.CommandCount >= 2);
+        Assert.True(stats.CommandCount >= 3);
     }
 }

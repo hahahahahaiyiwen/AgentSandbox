@@ -1,286 +1,165 @@
-# Agent Sandbox Virtual FileSystem
+# Agent Sandbox FileSystem Design
 
 ## Overview
 
-The Agent Sandbox provides a fully in-memory virtual filesystem designed for server-side AI agents. It offers complete filesystem isolation, snapshotting capabilities, and a pluggable storage backend for extensibility.
+The FileSystem provides a fully in-memory virtual filesystem designed for isolated agent execution. It offers complete filesystem isolation, snapshotting capabilities, size limits, and a pluggable storage backend for extensibility.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Agent Sandbox Instance                       │
+│                         FileSystem                              │
 ├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐    ┌─────────────────────────────────────┐ │
-│  │  SandboxShell   │───▶│         VirtualFileSystem           │ │
-│  │  (CLI Emulator) │    │                                     │ │
-│  └─────────────────┘    │  ┌─────────────────────────────────┐│ │
-│                         │  │         IFileSystem              ││ │
-│                         │  │  • Path operations               ││ │
-│                         │  │  • Directory operations          ││ │
-│                         │  │  • File read/write operations    ││ │
-│                         │  │  • Copy/Move/Delete operations   ││ │
-│                         │  └─────────────────────────────────┘│ │
-│                         │                  │                   │ │
-│                         │                  ▼                   │ │
-│                         │  ┌─────────────────────────────────┐│ │
-│                         │  │         IFileStorage             ││ │
-│                         │  │  • Key-value persistence         ││ │
-│                         │  │  • Pluggable backends            ││ │
-│                         │  └─────────────────────────────────┘│ │
-│                         └─────────────────────────────────────┘ │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                  FileSystem Interface                    │   │
+│  │  • Path operations (exists, is file/directory)          │   │
+│  │  • Directory operations (create, list)                  │   │
+│  │  • File read/write operations                           │   │
+│  │  • Copy/Move/Delete operations                          │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                            │                                    │
+│                            ▼                                    │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                  Storage Interface                       │   │
+│  │  • Key-value persistence abstraction                    │   │
+│  │  • Pluggable backends (in-memory, Redis, blob, etc.)    │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Core Components
+## Core Concepts
 
-### FileEntry
+### File Entry
 
-The data class representing a file or directory node. Combines both metadata and content.
+A file entry represents a node in the filesystem - either a file or directory. It combines both metadata and content in a single unit:
 
-```csharp
-public class FileEntry
-{
-    string Name { get; set; }           // File/directory name
-    string Path { get; set; }           // Full normalized path
-    bool IsDirectory { get; set; }      // Type discriminator
-    byte[] Content { get; set; }        // File content (empty for directories)
-    long Size { get; }                  // Computed from Content.Length
-    DateTime CreatedAt { get; set; }    // Creation timestamp
-    DateTime ModifiedAt { get; set; }   // Last modification timestamp
-    int Mode { get; set; }              // Unix-style permissions (e.g., 0644)
-}
-```
+| Property | Description |
+|----------|-------------|
+| **Name** | File or directory name |
+| **Path** | Full normalized POSIX-style path |
+| **IsDirectory** | Type discriminator |
+| **Content** | Binary content (empty for directories) |
+| **Size** | Computed from content length |
+| **CreatedAt** | Creation timestamp |
+| **ModifiedAt** | Last modification timestamp |
+| **Mode** | Unix-style permissions (e.g., 0644) |
 
 ---
 
-### IFileSystem
+### FileSystem Interface
 
-The primary filesystem interface providing POSIX-like operations.
+The primary filesystem interface provides POSIX-like operations:
 
-```csharp
-public interface IFileSystem
-{
-    // Path Operations
-    bool Exists(string path);
-    bool IsFile(string path);
-    bool IsDirectory(string path);
-    FileEntry? GetEntry(string path);
+**Path Operations**
+- Check if path exists
+- Determine if path is file or directory
+- Get file entry by path
 
-    // Directory Operations
-    void CreateDirectory(string path);
-    IEnumerable<string> ListDirectory(string path);
-    IEnumerable<FileEntry> ListEntries(string path);
+**Directory Operations**
+- Create directories (with parent creation)
+- List directory contents (names or full entries)
 
-    // File Read Operations
-    byte[] ReadFile(string path);
-    string ReadFile(string path, Encoding encoding);
-    IEnumerable<string> ReadFileLines(string path, Encoding? encoding = null);
-    Stream OpenRead(string path);
+**File Operations**
+- Read file as bytes, text, or lines
+- Write file from bytes, text, or lines
+- Append content to existing files
+- Stream-based read/write access
 
-    // File Write Operations
-    void WriteFile(string path, byte[] content);
-    void WriteFile(string path, string content, Encoding? encoding = null);
-    void WriteFile(string path, IEnumerable<string> lines, Encoding? encoding = null);
-    void AppendToFile(string path, byte[] content);
-    void AppendToFile(string path, string content, Encoding? encoding = null);
-    Stream OpenWrite(string path, bool append = false);
-
-    // Delete Operations
-    void DeleteFile(string path);
-    void DeleteDirectory(string path, bool recursive = false);
-    void Delete(string path, bool recursive = false);
-
-    // Copy/Move Operations
-    void Copy(string source, string destination, bool overwrite = false);
-    void Move(string source, string destination, bool overwrite = false);
-}
-```
+**Manipulation Operations**
+- Delete files and directories (with recursive option)
+- Copy files and directories
+- Move/rename files and directories
 
 ---
 
-### ISnapshotableFileSystem
+### Snapshotable FileSystem
 
-Extension interface for checkpoint/restore capabilities.
+Extension capability for checkpoint/restore:
 
-```csharp
-public interface ISnapshotableFileSystem : IFileSystem
-{
-    byte[] CreateSnapshot();
-    void RestoreSnapshot(byte[] snapshotData);
-}
-```
+- **CreateSnapshot**: Serialize entire filesystem state to binary data
+- **RestoreSnapshot**: Restore filesystem from previously saved snapshot
 
----
-
-### IFileSystemStats
-
-Extension interface for filesystem statistics.
-
-```csharp
-public interface IFileSystemStats
-{
-    long TotalSize { get; }       // Sum of all file sizes
-    int FileCount { get; }        // Number of files
-    int DirectoryCount { get; }   // Number of directories
-    int NodeCount { get; }        // Total nodes (files + directories)
-}
-```
+Use cases:
+- Save state before risky agent operations
+- Rollback on errors
+- Create checkpoints during long-running tasks
 
 ---
 
-### IFileStorage
+### FileSystem Statistics
 
-Low-level storage abstraction for persisting `FileEntry` objects. This is the extensibility point for different storage backends.
+Provides visibility into filesystem usage:
 
-```csharp
-public interface IFileStorage
-{
-    // Basic CRUD
-    FileEntry? Get(string path);
-    void Set(string path, FileEntry entry);
-    bool Delete(string path);
-    bool Exists(string path);
-
-    // Enumeration
-    IEnumerable<string> GetAllPaths();
-    IEnumerable<string> GetPathsByPrefix(string prefix);
-    IEnumerable<string> GetChildren(string directoryPath);
-
-    // Bulk Operations
-    void Clear();
-    int Count { get; }
-    IEnumerable<KeyValuePair<string, FileEntry>> GetAll();
-    void SetMany(IEnumerable<KeyValuePair<string, FileEntry>> entries);
-}
-```
+| Metric | Description |
+|--------|-------------|
+| **TotalSize** | Sum of all file sizes in bytes |
+| **FileCount** | Number of files |
+| **DirectoryCount** | Number of directories |
+| **NodeCount** | Total nodes (files + directories) |
 
 ---
 
-### IAsyncFileStorage
+### Size Limits
 
-Async version of `IFileStorage` for remote/network backends (Redis, Azure Blob, S3, etc.).
+The filesystem supports configurable limits to prevent unbounded growth:
 
-```csharp
-public interface IAsyncFileStorage
-{
-    Task<FileEntry?> GetAsync(string path, CancellationToken ct = default);
-    Task SetAsync(string path, FileEntry entry, CancellationToken ct = default);
-    Task<bool> DeleteAsync(string path, CancellationToken ct = default);
-    Task<bool> ExistsAsync(string path, CancellationToken ct = default);
-    Task<IEnumerable<string>> GetPathsByPrefixAsync(string prefix, CancellationToken ct = default);
-    Task<IEnumerable<string>> GetChildrenAsync(string directoryPath, CancellationToken ct = default);
-    Task ClearAsync(CancellationToken ct = default);
-    Task<IEnumerable<KeyValuePair<string, FileEntry>>> GetAllAsync(CancellationToken ct = default);
-    Task SetManyAsync(IEnumerable<KeyValuePair<string, FileEntry>> entries, CancellationToken ct = default);
-}
-```
+| Limit | Description |
+|-------|-------------|
+| **MaxTotalSize** | Maximum total bytes across all files |
+| **MaxFileSize** | Maximum size for a single file |
+| **MaxNodeCount** | Maximum number of files + directories |
+
+When a limit is exceeded, the write operation fails with an error.
 
 ---
 
-### ISerializableFileStorage
+### Storage Abstraction
 
-Extension for storage backends that support serialization.
+The storage layer abstracts how file entries are persisted:
 
-```csharp
-public interface ISerializableFileStorage : IFileStorage
-{
-    byte[] Serialize();
-    void Deserialize(byte[] data);
-}
-```
+**Core Operations**
+- Get/Set/Delete/Exists for individual entries
+- List all paths or paths by prefix
+- Get children of a directory
 
----
+**Bulk Operations**
+- Clear all entries
+- Get all entries
+- Set multiple entries atomically
 
-### FileSystemPath
+**Async Support**
+- Async versions of all operations for network/remote backends
+- Cancellation token support
 
-Static utility class for path manipulation.
-
-```csharp
-public static class FileSystemPath
-{
-    static string Normalize(string path);           // Normalize path (forward slashes, resolve . and ..)
-    static string GetParent(string path);           // Get parent directory
-    static string GetName(string path);             // Get file/directory name
-    static string GetExtension(string path);        // Get extension (with dot)
-    static string GetNameWithoutExtension(string path);
-    static string Combine(params string[] paths);   // Combine path segments
-    static bool IsRoot(string path);                // Check if path is root
-    static bool IsChildOf(string childPath, string parentPath);
-}
-```
-
-**Path Normalization Rules:**
-- Backslashes (`\`) converted to forward slashes (`/`)
-- Always starts with `/`
-- No trailing slashes (except root)
-- `.` segments removed
-- `..` segments resolved
+**Extensibility Points**
+- In-memory storage for testing and local execution
+- Remote key-value stores (Redis, DynamoDB)
+- Cloud blob storage (Azure Blob, S3)
+- Database-backed storage
 
 ---
 
-## Usage
+### Path Normalization
 
-### Basic Filesystem Operations
+All paths are normalized to a consistent POSIX-style format:
 
-```csharp
-// Create filesystem with default in-memory storage
-var fs = new VirtualFileSystem();
-
-// Write files
-fs.WriteFile("/src/main.cs", "Console.WriteLine(\"Hello\");");
-fs.WriteFile("/data/config.json", new byte[] { 0x7B, 0x7D });
-
-// Create directory and list contents
-fs.CreateDirectory("/docs");
-fs.WriteFile("/docs/README.md", "# Documentation");
-
-foreach (var name in fs.ListDirectory("/docs"))
-{
-    Console.WriteLine(name);
-}
-
-// Read files
-string content = fs.ReadFile("/src/main.cs", Encoding.UTF8);
-byte[] bytes = fs.ReadFile("/data/config.json");
-```
-
-### Snapshot and Restore
-
-```csharp
-// Save state before risky operation
-var snapshot = fs.CreateSnapshot();
-
-// Make changes
-fs.Delete("/src", recursive: true);
-
-// Restore if needed
-fs.RestoreSnapshot(snapshot);
-```
-
-### Custom Storage Backend
-
-```csharp
-// Implement IFileStorage for custom persistence
-public class RedisFileStorage : IFileStorage
-{
-    public FileEntry? Get(string path) { /* Redis GET */ }
-    public void Set(string path, FileEntry entry) { /* Redis SET */ }
-    // ... other methods
-}
-
-// Inject custom storage
-var storage = new RedisFileStorage(connectionMultiplexer);
-var fs = new VirtualFileSystem(storage);
-```
+| Rule | Example |
+|------|---------|
+| Backslashes converted to forward slashes | `\src\file.txt` → `/src/file.txt` |
+| Always starts with `/` | `src/file.txt` → `/src/file.txt` |
+| No trailing slashes (except root) | `/src/` → `/src` |
+| `.` segments removed | `/src/./file.txt` → `/src/file.txt` |
+| `..` segments resolved | `/src/../file.txt` → `/file.txt` |
 
 ---
 
-## Default Implementations
+## Design Principles
 
-| Component | Default Class | Description |
-|-----------|--------------|-------------|
-| `IFileSystem` | `VirtualFileSystem` | Full filesystem with all operations |
-| `ISnapshotableFileSystem` | `VirtualFileSystem` | Snapshot/restore support |
-| `IFileSystemStats` | `VirtualFileSystem` | Size and count statistics |
-| `IFileStorage` | `InMemoryFileStorage` | ConcurrentDictionary-based storage |
-| `ISerializableFileStorage` | `InMemoryFileStorage` | JSON serialization support |
+1. **Isolation**: Complete separation from host filesystem
+2. **Simplicity**: POSIX-like semantics familiar to developers
+3. **Extensibility**: Pluggable storage backends via clean interface
+4. **Observability**: Statistics and quota enforcement
+5. **Recoverability**: Snapshot/restore for state management
+6. **Safety**: Size limits prevent resource exhaustion

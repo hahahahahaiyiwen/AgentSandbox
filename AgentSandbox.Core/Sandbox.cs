@@ -1,52 +1,38 @@
 using AgentSandbox.Core.FileSystem;
 using AgentSandbox.Core.Shell;
 
-namespace AgentSandbox.Core.Sandbox;
-
-/// <summary>
-/// Configuration options for a sandbox instance.
-/// </summary>
-public class SandboxOptions
-{
-    /// <summary>Maximum total size of all files in bytes (default: 100MB).</summary>
-    public long MaxTotalSize { get; set; } = 100 * 1024 * 1024;
-    
-    /// <summary>Maximum size of a single file in bytes (default: 10MB).</summary>
-    public long MaxFileSize { get; set; } = 10 * 1024 * 1024;
-    
-    /// <summary>Maximum number of files/directories (default: 10000).</summary>
-    public int MaxNodeCount { get; set; } = 10000;
-    
-    /// <summary>Command execution timeout (default: 30 seconds).</summary>
-    public TimeSpan CommandTimeout { get; set; } = TimeSpan.FromSeconds(30);
-    
-    /// <summary>Initial environment variables.</summary>
-    public Dictionary<string, string> Environment { get; set; } = new();
-    
-    /// <summary>Initial working directory.</summary>
-    public string WorkingDirectory { get; set; } = "/";
-}
+namespace AgentSandbox.Core;
 
 /// <summary>
 /// Represents a sandboxed execution environment with virtual filesystem and shell.
 /// </summary>
-public class AgentSandboxInstance : IDisposable
+public class Sandbox : IDisposable
 {
     public string Id { get; }
-    public VirtualFileSystem FileSystem { get; }
+    public FileSystem.FileSystem FileSystem { get; }
     public SandboxShell Shell { get; }
     public SandboxOptions Options { get; }
     public DateTime CreatedAt { get; }
     public DateTime LastActivityAt { get; private set; }
     
     private readonly List<ShellResult> _commandHistory = new();
+    private readonly Action<string>? _onDisposed;
     private bool _disposed;
 
-    public AgentSandboxInstance(string? id = null, SandboxOptions? options = null)
+    public Sandbox(string? id = null, SandboxOptions? options = null, Action<string>? onDisposed = null)
     {
         Id = id ?? Guid.NewGuid().ToString("N")[..12];
         Options = options ?? new SandboxOptions();
-        FileSystem = new VirtualFileSystem();
+        _onDisposed = onDisposed;
+        
+        // Create filesystem with size limits from options
+        var fsOptions = new FileSystemOptions
+        {
+            MaxTotalSize = Options.MaxTotalSize,
+            MaxFileSize = Options.MaxFileSize,
+            MaxNodeCount = Options.MaxNodeCount
+        };
+        FileSystem = new FileSystem.FileSystem(fsOptions);
         Shell = new SandboxShell(FileSystem);
         CreatedAt = DateTime.UtcNow;
         LastActivityAt = CreatedAt;
@@ -63,6 +49,12 @@ public class AgentSandboxInstance : IDisposable
             FileSystem.CreateDirectory(Options.WorkingDirectory);
             Shell.Execute($"cd {Options.WorkingDirectory}");
         }
+
+        // Register shell extensions
+        foreach (var cmd in Options.ShellExtensions)
+        {
+            Shell.RegisterCommand(cmd);
+        }
     }
 
     /// <summary>
@@ -77,48 +69,6 @@ public class AgentSandboxInstance : IDisposable
         _commandHistory.Add(result);
         
         return result;
-    }
-
-    /// <summary>
-    /// Reads a file from the virtual filesystem.
-    /// </summary>
-    public string ReadFile(string path)
-    {
-        ThrowIfDisposed();
-        LastActivityAt = DateTime.UtcNow;
-        return FileSystem.ReadFile(path, System.Text.Encoding.UTF8);
-    }
-
-    /// <summary>
-    /// Writes a file to the virtual filesystem with size validation.
-    /// </summary>
-    public void WriteFile(string path, string content)
-    {
-        ThrowIfDisposed();
-        LastActivityAt = DateTime.UtcNow;
-
-        var bytes = System.Text.Encoding.UTF8.GetBytes(content);
-        
-        if (bytes.Length > Options.MaxFileSize)
-            throw new InvalidOperationException($"File size {bytes.Length} exceeds maximum {Options.MaxFileSize}");
-
-        if (FileSystem.TotalSize + bytes.Length > Options.MaxTotalSize)
-            throw new InvalidOperationException($"Total storage would exceed maximum {Options.MaxTotalSize}");
-
-        if (FileSystem.NodeCount >= Options.MaxNodeCount && !FileSystem.Exists(path))
-            throw new InvalidOperationException($"Maximum node count {Options.MaxNodeCount} reached");
-
-        FileSystem.WriteFile(path, content);
-    }
-
-    /// <summary>
-    /// Lists contents of a directory.
-    /// </summary>
-    public IEnumerable<string> ListDirectory(string path)
-    {
-        ThrowIfDisposed();
-        LastActivityAt = DateTime.UtcNow;
-        return FileSystem.ListDirectory(path);
     }
 
     /// <summary>
@@ -166,7 +116,7 @@ public class AgentSandboxInstance : IDisposable
     {
         Id = Id,
         FileCount = FileSystem.NodeCount,
-        TotalSize = FileSystem.TotalSize,
+        TotalSize = FileSystem.TotalSize, // in bytes
         CommandCount = _commandHistory.Count,
         CurrentDirectory = Shell.CurrentDirectory,
         CreatedAt = CreatedAt,
@@ -176,13 +126,19 @@ public class AgentSandboxInstance : IDisposable
     private void ThrowIfDisposed()
     {
         if (_disposed)
-            throw new ObjectDisposedException(nameof(AgentSandboxInstance));
+            throw new ObjectDisposedException(nameof(Sandbox));
     }
 
     public void Dispose()
     {
+        if (_disposed) return;
+        
         _disposed = true;
         _commandHistory.Clear();
+        
+        // Notify manager to remove reference
+        _onDisposed?.Invoke(Id);
+        
         GC.SuppressFinalize(this);
     }
 }

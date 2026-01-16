@@ -4,30 +4,40 @@ using System.Text.Json;
 namespace AgentSandbox.Core.FileSystem;
 
 /// <summary>
-/// In-memory virtual filesystem for agent sandboxing.
+/// In-memory file system for agent sandboxing.
 /// Thread-safe and serializable for snapshotting.
 /// Implements IFileSystem, ISnapshotableFileSystem, and IFileSystemStats.
 /// Uses IFileStorage for pluggable storage backends.
 /// </summary>
-public class VirtualFileSystem : IFileSystem, ISnapshotableFileSystem, IFileSystemStats
+public class FileSystem : IFileSystem, ISnapshotableFileSystem, IFileSystemStats
 {
     private readonly IFileStorage _storage;
+    private readonly FileSystemOptions _options;
     private readonly object _lock = new();
 
     /// <summary>
-    /// Creates a new VirtualFileSystem with in-memory storage.
+    /// Creates a new FileSystem with in-memory storage.
     /// </summary>
-    public VirtualFileSystem() : this(new InMemoryFileStorage())
+    public FileSystem() : this(new InMemoryFileStorage(), null)
     {
     }
 
     /// <summary>
-    /// Creates a new VirtualFileSystem with the specified storage backend.
+    /// Creates a new FileSystem with size limits.
+    /// </summary>
+    public FileSystem(FileSystemOptions? options) : this(new InMemoryFileStorage(), options)
+    {
+    }
+
+    /// <summary>
+    /// Creates a new FileSystem with the specified storage backend.
     /// </summary>
     /// <param name="storage">Storage backend for persisting file entries.</param>
-    public VirtualFileSystem(IFileStorage storage)
+    /// <param name="options">Optional size limit configuration.</param>
+    public FileSystem(IFileStorage storage, FileSystemOptions? options = null)
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
+        _options = options ?? new FileSystemOptions();
         
         // Initialize root directory if not exists
         if (!_storage.Exists("/"))
@@ -177,15 +187,27 @@ public class VirtualFileSystem : IFileSystem, ISnapshotableFileSystem, IFileSyst
     {
         path = FileSystemPath.Normalize(path);
         
+        // Validate size limits
+        ValidateFileSize(content.Length);
+        
         lock (_lock)
         {
+            var existing = _storage.Get(path);
+            var existingSize = existing?.Content.Length ?? 0;
+            ValidateTotalSize(content.Length - existingSize);
+            
+            if (!existing?.IsDirectory ?? true)
+            {
+                ValidateNodeCount(existing == null);
+            }
+            
             var parent = FileSystemPath.GetParent(path);
             if (!Exists(parent))
             {
                 CreateDirectory(parent);
             }
 
-            var existing = _storage.Get(path);
+            existing = _storage.Get(path);
             if (existing != null)
             {
                 if (existing.IsDirectory)
@@ -205,6 +227,40 @@ public class VirtualFileSystem : IFileSystem, ISnapshotableFileSystem, IFileSyst
                     Content = content,
                     Mode = 0644
                 });
+            }
+        }
+    }
+    
+    private void ValidateFileSize(long size)
+    {
+        if (_options.MaxFileSize.HasValue && size > _options.MaxFileSize.Value)
+        {
+            throw new InvalidOperationException(
+                $"File size ({size} bytes) exceeds maximum allowed ({_options.MaxFileSize.Value} bytes)");
+        }
+    }
+    
+    private void ValidateTotalSize(long additionalSize)
+    {
+        if (_options.MaxTotalSize.HasValue && additionalSize > 0)
+        {
+            var currentTotal = TotalSize;
+            if (currentTotal + additionalSize > _options.MaxTotalSize.Value)
+            {
+                throw new InvalidOperationException(
+                    $"Total size would exceed maximum ({_options.MaxTotalSize.Value} bytes)");
+            }
+        }
+    }
+    
+    private void ValidateNodeCount(bool isNewNode)
+    {
+        if (_options.MaxNodeCount.HasValue && isNewNode)
+        {
+            if (NodeCount >= _options.MaxNodeCount.Value)
+            {
+                throw new InvalidOperationException(
+                    $"Node count would exceed maximum ({_options.MaxNodeCount.Value})");
             }
         }
     }
@@ -259,7 +315,7 @@ public class VirtualFileSystem : IFileSystem, ISnapshotableFileSystem, IFileSyst
     /// <inheritdoc />
     public Stream OpenWrite(string path, bool append = false)
     {
-        return new VirtualFileWriteStream(this, path, append);
+        return new FileWriteStream(this, path, append);
     }
 
     #endregion
@@ -470,16 +526,16 @@ public class VirtualFileSystem : IFileSystem, ISnapshotableFileSystem, IFileSyst
 }
 
 /// <summary>
-/// A writable stream that writes to the virtual filesystem on dispose.
+/// A writable stream that writes to the filesystem on dispose.
 /// </summary>
-internal class VirtualFileWriteStream : MemoryStream
+internal class FileWriteStream : MemoryStream
 {
-    private readonly VirtualFileSystem _fs;
+    private readonly FileSystem _fs;
     private readonly string _path;
     private readonly bool _append;
     private bool _disposed;
 
-    public VirtualFileWriteStream(VirtualFileSystem fs, string path, bool append)
+    public FileWriteStream(FileSystem fs, string path, bool append)
     {
         _fs = fs;
         _path = path;
