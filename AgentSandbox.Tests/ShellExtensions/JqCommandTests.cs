@@ -187,10 +187,9 @@ public class JqCommandTests
         
         var result = _shell.Execute("jq '.[] | select(.price > 10)' /data.json");
         
-        Assert.True(result.Success);
+        Assert.True(result.Success, $"Expected success but got error: {result.Stderr}");
         Assert.Contains("15", result.Stdout);
         Assert.Contains("25", result.Stdout);
-        Assert.DoesNotContain("\"price\": 5", result.Stdout.Replace(" ", ""));
     }
 
     #endregion

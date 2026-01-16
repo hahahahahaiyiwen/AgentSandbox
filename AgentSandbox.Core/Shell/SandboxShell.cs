@@ -124,10 +124,10 @@ public class SandboxShell : ISandboxShell, IShellContext
         if (string.IsNullOrWhiteSpace(commandLine))
             return ShellResult.Ok();
 
-        // Check for output redirection
+        // Check for output redirection (ignore > inside quotes)
         string? redirectFile = null;
         bool appendMode = false;
-        var redirectIndex = commandLine.IndexOf(">>");
+        var redirectIndex = FindRedirectIndex(commandLine, ">>");
         if (redirectIndex > 0)
         {
             appendMode = true;
@@ -136,7 +136,7 @@ public class SandboxShell : ISandboxShell, IShellContext
         }
         else
         {
-            redirectIndex = commandLine.IndexOf('>');
+            redirectIndex = FindRedirectIndex(commandLine, ">");
             if (redirectIndex > 0)
             {
                 redirectFile = commandLine[(redirectIndex + 1)..].Trim().Trim('"', '\'');
@@ -255,6 +255,44 @@ public class SandboxShell : ISandboxShell, IShellContext
         }
 
         return parts.ToArray();
+    }
+
+    /// <summary>
+    /// Finds a redirect operator outside of quoted strings.
+    /// </summary>
+    private int FindRedirectIndex(string commandLine, string op)
+    {
+        var inQuote = false;
+        var quoteChar = '\0';
+
+        for (int i = 0; i <= commandLine.Length - op.Length; i++)
+        {
+            var c = commandLine[i];
+
+            if (inQuote)
+            {
+                if (c == quoteChar)
+                {
+                    inQuote = false;
+                }
+            }
+            else if (c == '"' || c == '\'')
+            {
+                inQuote = true;
+                quoteChar = c;
+            }
+            else if (commandLine.Substring(i, op.Length) == op)
+            {
+                // For single >, make sure it's not part of >>
+                if (op == ">" && i + 1 < commandLine.Length && commandLine[i + 1] == '>')
+                {
+                    continue;
+                }
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private string ExpandVariables(string text)

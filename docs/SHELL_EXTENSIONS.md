@@ -123,24 +123,168 @@ curl -o response.json https://api.example.com/data
 
 ---
 
+### JqCommand
+
+JSON processor for parsing, filtering, and transforming JSON data.
+
+**Location:** `AgentSandbox.Core/ShellExtensions/JqCommand.cs`
+
+**Usage:**
+```bash
+jq [options] <filter> [file]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-r, --raw-output` | Output raw strings without quotes |
+| `-c, --compact` | Compact output (no pretty printing) |
+| `-e, --exit-status` | Set exit status based on output |
+| `-s, --slurp` | Read entire input into array |
+| `-n, --null-input` | Don't read input |
+
+**Supported Filters:**
+
+| Filter | Description |
+|--------|-------------|
+| `.` | Identity (return input unchanged) |
+| `.foo` | Get field 'foo' |
+| `.foo.bar` | Get nested field |
+| `.foo?` | Optional field (no error if missing) |
+| `.[0]` | Get array element at index |
+| `.[]` | Iterate array elements |
+| `.[0:3]` | Array slice |
+| `.[] \| .name` | Pipe filters together |
+| `select(expr)` | Filter elements where expr is true |
+| `map(expr)` | Apply expr to each element |
+| `keys` | Get object keys |
+| `values` | Get object values |
+| `length` | Get length of array/string/object |
+| `type` | Get JSON type |
+| `first`, `last` | Get first/last element |
+| `add` | Sum array elements |
+| `sort`, `sort_by(.field)` | Sort array |
+| `reverse` | Reverse array |
+| `unique` | Remove duplicates |
+| `flatten` | Flatten nested arrays |
+| `group_by(.field)` | Group by field |
+| `[.foo, .bar]` | Construct array |
+| `{name: .foo}` | Construct object |
+
+**Comparison Operators:** `==`, `!=`, `>`, `<`, `>=`, `<=`
+
+**Examples:**
+```bash
+# Extract a field
+jq '.name' data.json
+
+# Get nested value
+jq '.user.email' data.json
+
+# Filter array elements
+jq '.[] | select(.price > 10)' products.json
+
+# Transform data
+jq 'map({id: .id, name: .title})' items.json
+
+# Raw output (no quotes)
+jq -r '.name' data.json
+
+# Compact output
+jq -c '.' data.json
+```
+
+**Notes:**
+- Full support for nested field access and array operations
+- Pipe operator for chaining filters
+- Comparison operators work with numbers and strings
+- Constructs new arrays and objects from input data
+
+---
+
+### GitCommand
+
+Simulated version control system for managing file changes within the sandbox.
+
+**Location:** `AgentSandbox.Core/ShellExtensions/GitCommand.cs`
+
+**Usage:**
+```bash
+git <command> [options]
+git help              # Show available commands
+```
+
+**Supported Commands:**
+
+| Command | Description |
+|---------|-------------|
+| `git init` | Initialize a new repository |
+| `git add <file>` | Stage files for commit |
+| `git add .` | Stage all files |
+| `git status` | Show working tree status |
+| `git commit -m <msg>` | Create a commit |
+| `git log` | Show commit history |
+| `git log --oneline` | Compact log format |
+| `git log -n <count>` | Limit log entries |
+| `git diff` | Show unstaged changes |
+| `git diff --staged` | Show staged changes |
+| `git branch` | List branches |
+| `git branch <name>` | Create branch |
+| `git branch -d <name>` | Delete branch |
+| `git checkout <branch>` | Switch branches |
+| `git checkout -b <name>` | Create and switch |
+| `git reset` | Unstage all files |
+| `git reset <file>` | Unstage specific file |
+| `git help` | Show help |
+
+**Examples:**
+```bash
+# Initialize and first commit
+git init
+echo "Hello World" > readme.txt
+git add readme.txt
+git commit -m "Initial commit"
+
+# Create feature branch
+git checkout -b feature
+echo "New feature" > feature.txt
+git add feature.txt
+git commit -m "Add feature"
+
+# View history
+git log --oneline
+
+# Switch back to main
+git checkout main
+```
+
+**Data Model:**
+
+The simulated git stores data in `.git/` within the virtual filesystem:
+```
+/.git/
+  HEAD              # Current branch reference
+  config.json       # Repository configuration
+  index.json        # Staging area
+  refs/heads/       # Branch pointers
+  objects/          # Commit and blob objects (SHA1 hashes)
+```
+
+**Notes:**
+- Fully simulated within the sandbox virtual filesystem
+- No external dependencies or real git installation required
+- Commits store file snapshots as SHA1-hashed objects
+- Branch switching restores files from commit snapshots
+- Useful for teaching version control concepts to AI agents
+
+---
+
 ## Planned Extensions
 
 ### High Priority
 
-#### 1. `jq` - JSON Processor
-Parse, filter, and transform JSON data.
-
-```bash
-# Extract field
-echo '{"name":"test"}' | jq '.name'
-
-# Filter array
-cat data.json | jq '.items[] | select(.active == true)'
-```
-
-**Use cases:** API response parsing, configuration manipulation, data transformation.
-
-#### 2. `tar` / `zip` - Archive Commands
+#### 1. `tar` / `zip` - Archive Commands
 Create and extract archives within the virtual filesystem.
 
 ```bash
@@ -152,7 +296,7 @@ unzip backup.zip
 
 **Use cases:** Project packaging, backup/restore, multi-file transfers.
 
-#### 3. `sed` / `awk` - Text Processing
+#### 2. `sed` / `awk` - Text Processing
 Stream editing and pattern-based text processing.
 
 ```bash
@@ -162,7 +306,7 @@ awk '{print $1, $3}' data.csv
 
 **Use cases:** File transformations, log processing, data extraction.
 
-#### 4. `diff` / `patch` - File Comparison
+#### 3. `diff` / `patch` - File Comparison
 Compare files and apply patches.
 
 ```bash
@@ -175,21 +319,7 @@ patch < changes.patch
 
 ### Medium Priority
 
-#### 5. `git` - Version Control (Simulated)
-Basic git operations within the virtual filesystem.
-
-```bash
-git init
-git add .
-git commit -m "message"
-git log
-git diff
-git status
-```
-
-**Notes:** Would simulate git operations without actual git repository. Useful for teaching agents version control concepts.
-
-#### 6. `sqlite` - Database Operations
+#### 4. `sqlite` - Database Operations
 In-memory SQLite database for structured data.
 
 ```bash
@@ -200,7 +330,7 @@ sqlite mydb.db "SELECT * FROM users"
 
 **Use cases:** Data storage, structured queries, application prototyping.
 
-#### 7. `base64` - Encoding/Decoding
+#### 5. `base64` - Encoding/Decoding
 Base64 encoding and decoding.
 
 ```bash
@@ -210,7 +340,7 @@ echo "SGVsbG8=" | base64 -d
 
 **Use cases:** Binary data handling, API authentication, data embedding.
 
-#### 8. `xxd` / `hexdump` - Binary Inspection
+#### 6. `xxd` / `hexdump` - Binary Inspection
 View and manipulate binary data.
 
 ```bash
@@ -222,7 +352,7 @@ xxd -r hex.txt > file.bin
 
 ### Lower Priority / Specialized
 
-#### 9. `python` - Python Interpreter (Sandboxed)
+#### 7. `python` - Python Interpreter (Sandboxed)
 Execute Python code within constraints.
 
 ```bash
@@ -232,7 +362,7 @@ python -c "print(2 + 2)"
 
 **Notes:** Would require careful sandboxing. Could use Roslyn for C# scripting as alternative.
 
-#### 10. `node` - JavaScript Runtime (Sandboxed)
+#### 8. `node` - JavaScript Runtime (Sandboxed)
 Execute JavaScript code.
 
 ```bash
@@ -240,7 +370,7 @@ node script.js
 node -e "console.log('Hello')"
 ```
 
-#### 11. `dotnet` - .NET CLI (Simulated)
+#### 9. `dotnet` - .NET CLI (Simulated)
 Simulated dotnet operations for project scaffolding.
 
 ```bash
@@ -249,7 +379,7 @@ dotnet build
 dotnet run
 ```
 
-#### 12. `make` / `task` - Build Automation
+#### 10. `make` / `task` - Build Automation
 Task runner for defined workflows.
 
 ```bash
@@ -258,7 +388,7 @@ make build
 task test
 ```
 
-#### 13. `cron` / `at` - Scheduled Tasks
+#### 11. `cron` / `at` - Scheduled Tasks
 Schedule command execution (within sandbox session lifetime).
 
 ```bash

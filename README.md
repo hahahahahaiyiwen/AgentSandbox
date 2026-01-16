@@ -1,11 +1,13 @@
 # Agent Sandbox
 
-An in-memory agent sandbox with virtual filesystem and command-line interface for server-side AI agents. Built with .NET 8.
+An in-memory agent sandbox with virtual filesystem and command-line interface for server-side AI agents. Built with .NET.
 
 ## Features
 
 - **In-Memory Virtual Filesystem**: Full POSIX-like filesystem that never touches disk
-- **Sandboxed Shell**: Unix-style CLI emulator with 18+ commands
+- **Sandboxed Shell**: Unix-style CLI emulator with 18+ built-in commands
+- **Shell Extensions**: Extensible command system with `curl`, `jq`, `git` and more
+- **Semantic Kernel Integration**: Ready-to-use AI function for agent tool calling
 - **Thread-Safe**: Concurrent access support with proper locking
 - **Snapshots**: Save and restore complete sandbox state
 - **Resource Limits**: Configurable max file size, total storage, and node count
@@ -19,6 +21,9 @@ An in-memory agent sandbox with virtual filesystem and command-line interface fo
 │                    AgentSandbox.Api                         │
 │            (REST endpoints, Swagger UI)                     │
 ├─────────────────────────────────────────────────────────────┤
+│               AgentSandbox.SemanticKernel                   │
+│         (Kernel extensions, AI function factory)            │
+├─────────────────────────────────────────────────────────────┤
 │                    AgentSandbox.Core                        │
 │  ┌─────────────────┐ ┌─────────────────┐ ┌───────────────┐  │
 │  │ VirtualFileSystem│ │  SandboxShell   │ │SandboxManager │  │
@@ -28,6 +33,23 @@ An in-memory agent sandbox with virtual filesystem and command-line interface fo
 ```
 
 ## Quick Start
+
+### Run as Interactive Console (Playground)
+
+```bash
+cd AgentSandbox
+dotnet run --project AgentSandbox.Playground
+```
+
+This starts an interactive shell where you can execute commands:
+
+```
+SandboxShell > mkdir workspace
+SandboxShell > cd workspace
+SandboxShell > echo "Hello World" > hello.txt
+SandboxShell > cat hello.txt
+SandboxShell > exit
+```
 
 ### Run the API Server
 
@@ -41,21 +63,24 @@ Navigate to `http://localhost:5000/swagger` to explore the API.
 ### Use as a Library
 
 ```csharp
-using AgentSandbox.Core.Sandbox;
+using AgentSandbox.Core;
 
 // Create a sandbox
-var sandbox = new AgentSandboxInstance();
+var sandbox = new Sandbox();
 
 // Execute shell commands
 var result = sandbox.Execute("mkdir -p /workspace/src");
 sandbox.Execute("echo 'console.log(\"Hello\")' > /workspace/src/app.js");
 
-// Read/write files directly
-sandbox.WriteFile("/data/config.json", "{\"key\": \"value\"}");
-var content = sandbox.ReadFile("/data/config.json");
-
-// List directories
-var files = sandbox.ListDirectory("/workspace/src");
+// Check command results
+if (result.Success)
+{
+    Console.WriteLine(result.Stdout);
+}
+else
+{
+    Console.WriteLine($"Error: {result.Stderr}");
+}
 
 // Create snapshots for checkpointing
 var snapshot = sandbox.CreateSnapshot();
@@ -66,6 +91,52 @@ sandbox.RestoreSnapshot(snapshot); // Rollback
 var stats = sandbox.GetStats();
 Console.WriteLine($"Files: {stats.FileCount}, Size: {stats.TotalSize} bytes");
 ```
+
+### Use with Semantic Kernel
+
+Integrate with Microsoft Semantic Kernel for AI agent tool calling:
+
+```csharp
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.Extensions.AgentSandbox;
+using AgentSandbox.Core;
+using AgentSandbox.Core.Shell.Extensions;
+
+// Configure sandbox with extensions
+var options = new SandboxOptions
+{
+    ShellExtensions = new IShellCommand[]
+    {
+        new CurlCommand(),
+        new JqCommand(),
+        new GitCommand()
+    }
+};
+
+// Build kernel with sandbox
+var kernel = Kernel.CreateBuilder()
+    .AddSandboxManager(options)
+    .AddOpenAIChatCompletion("gpt-4", apiKey)
+    .Build();
+
+// Get the sandbox function for tool calling
+var sandboxFunction = kernel.GetSandboxFunction();
+
+// Add to kernel plugins
+kernel.Plugins.AddFromFunctions("Sandbox", new[] { sandboxFunction });
+
+// Now the AI agent can execute shell commands
+var result = await kernel.InvokePromptAsync(
+    "Create a project structure with src and tests folders, then create a README.md file");
+```
+
+**Available Extension Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `AddSandboxManager(options?)` | Registers SandboxManager as singleton, Sandbox as scoped service |
+| `GetSandboxFunction(options?)` | Creates a KernelFunction for command execution from DI |
+| `CreateSandboxFunction(sandbox)` | Static factory to create AIFunction from a Sandbox instance |
 
 ## API Endpoints
 
@@ -111,6 +182,8 @@ curl "http://localhost:5000/api/sandbox/agent-1/ls?path=/workspace"
 
 ## Supported Shell Commands
 
+### Built-in Commands
+
 | Command | Description | Example |
 |---------|-------------|---------|
 | `pwd` | Print working directory | `pwd` |
@@ -132,6 +205,47 @@ curl "http://localhost:5000/api/sandbox/agent-1/ls?path=/workspace"
 | `export` | Set environment variable | `export KEY=value` |
 | `help` | Show available commands | `help` |
 
+### Shell Extensions
+
+Extensions provide additional commands and must be registered via `SandboxOptions.ShellExtensions`:
+
+| Extension | Description | Example |
+|-----------|-------------|---------|
+| `curl` | HTTP client for web requests | `curl -X GET https://api.example.com/data` |
+| `jq` | JSON processor and query tool | `jq '.users[].name' data.json` |
+| `git` | Simulated version control | `git init && git add . && git commit -m "Initial"` |
+
+**Using Extensions:**
+
+```csharp
+using AgentSandbox.Core;
+using AgentSandbox.Core.Shell.Extensions;
+
+var options = new SandboxOptions
+{
+    ShellExtensions = new IShellCommand[]
+    {
+        new CurlCommand(),
+        new JqCommand(),
+        new GitCommand()
+    }
+};
+
+var sandbox = new Sandbox(options: options);
+
+// Now you can use extension commands
+sandbox.Execute("git init");
+sandbox.Execute("echo '{\"name\": \"test\"}' > data.json");
+sandbox.Execute("jq '.name' data.json");
+```
+
+Each extension supports `--help` for usage information:
+```bash
+curl --help
+jq --help
+git help
+```
+
 ## Configuration
 
 ```csharp
@@ -149,7 +263,7 @@ var options = new SandboxOptions
     }
 };
 
-var sandbox = new AgentSandboxInstance("my-agent", options);
+var sandbox = new Sandbox("my-agent", options);
 ```
 
 ## Multi-Sandbox Management
@@ -195,25 +309,42 @@ manager.Destroy("agent-1");
 AgentSandbox/
 ├── AgentSandbox.sln
 ├── nuget.config
-├── AgentSandbox.Core/           # Core library
+├── README.md
+├── docs/                            # Design documentation
+│   ├── DESIGN.md
+│   ├── FILESYSTEM_DESIGN.md
+│   ├── SANDBOX_DESIGN.md
+│   └── SHELL_EXTENSIONS.md
+├── AgentSandbox.Core/               # Core library
+│   ├── Sandbox.cs                   # Main sandbox class
+│   ├── SandboxManager.cs            # Multi-sandbox manager
+│   ├── SandboxOptions.cs            # Configuration options
 │   ├── FileSystem/
-│   │   └── VirtualFileSystem.cs # In-memory VFS
+│   │   ├── FileSystem.cs            # In-memory VFS
+│   │   └── IFileSystem.cs           # Filesystem interfaces
 │   ├── Shell/
-│   │   ├── ShellResult.cs       # Command result model
-│   │   └── SandboxShell.cs      # CLI emulator
-│   └── Sandbox/
-│       ├── AgentSandboxInstance.cs  # Main sandbox class
-│       └── SandboxManager.cs        # Multi-sandbox manager
-├── AgentSandbox.Api/            # REST API
-│   ├── Endpoints/
-│   │   └── SandboxEndpoints.cs  # API routes
-│   ├── Models/
-│   │   └── ApiModels.cs         # DTOs
+│   │   ├── SandboxShell.cs          # CLI emulator
+│   │   ├── ShellResult.cs           # Command result model
+│   │   └── IShellCommand.cs         # Extension interface
+│   └── ShellExtensions/
+│       ├── CurlCommand.cs           # HTTP client
+│       ├── JqCommand.cs             # JSON processor
+│       └── GitCommand.cs            # Simulated git
+├── AgentSandbox.SemanticKernel/     # Semantic Kernel integration
+│   └── KernelExtensions.cs          # Kernel builder extensions
+├── AgentSandbox.Playground/         # Interactive console app
 │   └── Program.cs
-└── AgentSandbox.Tests/          # Unit tests
+├── AgentSandbox.Api/                # REST API
+│   ├── Endpoints/
+│   │   └── SandboxEndpoints.cs      # API routes
+│   └── Program.cs
+└── AgentSandbox.Tests/              # Unit tests
     ├── VirtualFileSystemTests.cs
     ├── SandboxShellTests.cs
-    └── SandboxManagerTests.cs
+    └── ShellExtensions/
+        ├── CurlCommandTests.cs
+        ├── JqCommandTests.cs
+        └── GitCommandTests.cs
 ```
 
 ## Building

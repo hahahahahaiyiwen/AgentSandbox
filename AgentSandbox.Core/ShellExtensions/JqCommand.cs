@@ -12,8 +12,12 @@ public class JqCommand : IShellCommand
     public string Name => "jq";
     public IReadOnlyList<string> Aliases => Array.Empty<string>();
     public string Description => "Command-line JSON processor";
-    public string Usage => """
-        jq [options] <filter> [file]
+    public string Usage => "jq [options] <filter> [file]\nRun 'jq help' for available options.";
+
+    private static string HelpText => """
+        jq - Command-line JSON processor
+
+        Usage: jq [options] <filter> [file]
           filter              jq filter expression
           file                Input JSON file (optional, reads from stdin/pipe if omitted)
         
@@ -23,6 +27,7 @@ public class JqCommand : IShellCommand
           -e, --exit-status   Set exit status based on output
           -s, --slurp         Read entire input into array
           -n, --null-input    Don't read input, useful with --argjson
+          -h, --help          Show this help message
         
         Filter Syntax:
           .                   Identity (output input unchanged)
@@ -59,9 +64,15 @@ public class JqCommand : IShellCommand
 
     public ShellResult Execute(string[] args, IShellContext context)
     {
+        // Handle help
+        if (args.Length > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help"))
+        {
+            return ShellResult.Ok(HelpText);
+        }
+
         if (args.Length == 0)
         {
-            return ShellResult.Error($"jq: missing filter\nUsage: jq <filter> [file]");
+            return ShellResult.Error($"jq: missing filter\n{Usage}");
         }
 
         var options = ParseOptions(args, out var filter, out var inputFile);
@@ -176,9 +187,21 @@ public class JqCommand : IShellCommand
         }
 
         // Array/Object construction: [expr] or {key: expr}
-        if (filter.StartsWith('[') && filter.EndsWith(']') && !filter.StartsWith("[."))
+        // Array construction contains comma-separated expressions like [.a, .b]
+        // Array index access starts with [. like .[0] or .[]
+        if (filter.StartsWith('[') && filter.EndsWith(']'))
         {
-            return ApplyArrayConstruction(input, filter);
+            var inner = filter[1..^1].Trim();
+            // If it contains a comma at the top level, it's array construction
+            if (ContainsTopLevelComma(inner))
+            {
+                return ApplyArrayConstruction(input, filter);
+            }
+            // If it doesn't start with a number, negative sign, or colon (for slicing), treat as construction
+            if (!string.IsNullOrEmpty(inner) && !char.IsDigit(inner[0]) && inner[0] != '-' && !inner.Contains(':'))
+            {
+                return ApplyArrayConstruction(input, filter);
+            }
         }
 
         if (filter.StartsWith('{') && filter.EndsWith('}'))
@@ -455,10 +478,10 @@ public class JqCommand : IShellCommand
     {
         expr = expr.Trim();
 
-        // Comparison operators
+        // Comparison operators - check in order of length (longer first to avoid partial matches)
         foreach (var op in new[] { "==", "!=", ">=", "<=", ">", "<" })
         {
-            var opIndex = expr.IndexOf(op);
+            var opIndex = FindOperatorIndex(expr, op);
             if (opIndex > 0)
             {
                 var left = expr[..opIndex].Trim();
@@ -492,6 +515,40 @@ public class JqCommand : IShellCommand
         return IsTruthy(result);
     }
 
+    private int FindOperatorIndex(string expr, string op)
+    {
+        var inString = false;
+        var parenDepth = 0;
+        var bracketDepth = 0;
+
+        for (int i = 0; i <= expr.Length - op.Length; i++)
+        {
+            var c = expr[i];
+            if (c == '"') inString = !inString;
+            if (!inString)
+            {
+                if (c == '(') parenDepth++;
+                if (c == ')') parenDepth--;
+                if (c == '[') bracketDepth++;
+                if (c == ']') bracketDepth--;
+
+                if (parenDepth == 0 && bracketDepth == 0)
+                {
+                    if (expr.Substring(i, op.Length) == op)
+                    {
+                        // For single-char operators like > or <, make sure we're not part of >= or <=
+                        if (op.Length == 1 && i + 1 < expr.Length && expr[i + 1] == '=')
+                        {
+                            continue;
+                        }
+                        return i;
+                    }
+                }
+            }
+        }
+        return -1;
+    }
+
     private bool JsonNodesEqual(JsonNode? a, JsonNode? b)
     {
         if (a == null && b == null) return true;
@@ -503,12 +560,26 @@ public class JqCommand : IShellCommand
     {
         if (a is JsonValue va && b is JsonValue vb)
         {
-            if (va.TryGetValue<double>(out var da) && vb.TryGetValue<double>(out var db))
-                return da.CompareTo(db);
+            // Try to compare as numbers (handle int, long, double)
+            var aNum = GetNumericValue(va);
+            var bNum = GetNumericValue(vb);
+            if (aNum.HasValue && bNum.HasValue)
+                return aNum.Value.CompareTo(bNum.Value);
+            
             if (va.TryGetValue<string>(out var sa) && vb.TryGetValue<string>(out var sb))
                 return string.Compare(sa, sb, StringComparison.Ordinal);
         }
         return 0;
+    }
+
+    private double? GetNumericValue(JsonValue val)
+    {
+        if (val.TryGetValue<double>(out var d)) return d;
+        if (val.TryGetValue<int>(out var i)) return i;
+        if (val.TryGetValue<long>(out var l)) return l;
+        if (val.TryGetValue<float>(out var f)) return f;
+        if (val.TryGetValue<decimal>(out var dec)) return (double)dec;
+        return null;
     }
 
     private bool IsTruthy(JsonNode? node)
@@ -795,6 +866,27 @@ public class JqCommand : IShellCommand
             }
         }
         return new List<JsonNode?> { result };
+    }
+
+    private bool ContainsTopLevelComma(string expr)
+    {
+        var bracketDepth = 0;
+        var parenDepth = 0;
+        var inString = false;
+
+        foreach (var c in expr)
+        {
+            if (c == '"') inString = !inString;
+            if (!inString)
+            {
+                if (c == '[' || c == '{') bracketDepth++;
+                if (c == ']' || c == '}') bracketDepth--;
+                if (c == '(') parenDepth++;
+                if (c == ')') parenDepth--;
+                if (c == ',' && bracketDepth == 0 && parenDepth == 0) return true;
+            }
+        }
+        return false;
     }
 
     private bool ContainsPipeOutsideStrings(string filter)

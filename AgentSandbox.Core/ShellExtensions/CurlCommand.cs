@@ -15,14 +15,27 @@ public class CurlCommand : IShellCommand
     public string Name => "curl";
     public IReadOnlyList<string> Aliases => Array.Empty<string>();
     public string Description => "Transfer data from or to a server using HTTP";
-    public string Usage => "curl [options] <url>\n" +
-        "  -X, --request <method>   HTTP method (GET, POST, PUT, DELETE, PATCH)\n" +
-        "  -H, --header <header>    Add header (can be used multiple times)\n" +
-        "  -d, --data <data>        Request body data\n" +
-        "  -o, --output <file>      Write output to file\n" +
-        "  -s, --silent             Silent mode (no progress)\n" +
-        "  -i, --include            Include response headers in output\n" +
-        "  -L, --location           Follow redirects";
+    public string Usage => "curl [options] <url>\nRun 'curl help' for available options.";
+
+    private static string HelpText => @"curl - Transfer data from or to a server using HTTP
+
+Usage: curl [options] <url>
+
+Options:
+  -X, --request <method>   HTTP method (GET, POST, PUT, DELETE, PATCH)
+  -H, --header <header>    Add header (can be used multiple times)
+  -d, --data <data>        Request body data
+  -o, --output <file>      Write output to file
+  -s, --silent             Silent mode (no progress)
+  -i, --include            Include response headers in output
+  -L, --location           Follow redirects
+  -h, --help               Show this help message
+
+Examples:
+  curl https://api.example.com/data
+  curl -X POST -H ""Content-Type: application/json"" -d '{""key"":""value""}' https://api.example.com
+  curl -o output.json https://api.example.com/data
+  curl -i -L https://example.com";
 
     public CurlCommand() : this(new HttpClient())
     {
@@ -35,9 +48,15 @@ public class CurlCommand : IShellCommand
 
     public ShellResult Execute(string[] args, IShellContext context)
     {
+        // Handle help
+        if (args.Length > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help"))
+        {
+            return ShellResult.Ok(HelpText);
+        }
+
         if (args.Length == 0)
         {
-            return ShellResult.Error($"curl: missing URL\nUsage: {Usage}");
+            return ShellResult.Error($"curl: missing URL\n{Usage}");
         }
 
         var options = ParseArguments(args);
