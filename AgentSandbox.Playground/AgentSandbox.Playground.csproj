@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AgentSandbox.SemanticKernel\AgentSandbox.SemanticKernel.csproj" />
+    <ProjectReference Include="..\AgentSandbox.Extensions\AgentSandbox.Extensions.csproj" />
   </ItemGroup>
 
   <ItemGroup>
