@@ -2,7 +2,6 @@ using AgentSandbox.Core;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.SemanticKernel;
-using System.Text.Json;
 
 namespace AgentSandbox.Extensions.SemanticKernel;
 
