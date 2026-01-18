@@ -3,7 +3,7 @@ using AgentSandbox.Core.Telemetry;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
 
-namespace AgentSandbox.Extensions.ApplicationInsights;
+namespace AgentSandbox.Extensions.Observability;
 
 /// <summary>
 /// ISandboxObserver implementation that sends telemetry to Application Insights.

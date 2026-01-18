@@ -126,26 +126,7 @@ diff -u old.txt new.txt > changes.patch
 
 ## Priority 3: Enhanced Observability
 
-### 3.1 Structured Logging Integration
-
-**Effort:** Low | **Impact:** Medium
-
-Add ILogger integration for structured logging.
-
-```csharp
-var sandbox = new Sandbox(options: new SandboxOptions
-{
-    Telemetry = new SandboxTelemetryOptions
-    {
-        Enabled = true,
-        Logger = loggerFactory.CreateLogger<Sandbox>()
-    }
-});
-```
-
----
-
-### 3.2 Metrics Dashboard Templates
+### 3.1 Metrics Dashboard Templates
 
 **Effort:** Low | **Impact:** Medium
 
@@ -156,20 +137,6 @@ Provide Grafana/Azure Dashboard templates for sandbox monitoring.
 - Error rates by command type
 - Storage utilization over time
 - Active sandbox count
-
----
-
-### 3.3 OpenTelemetry Collector Integration
-
-**Effort:** Low | **Impact:** Medium
-
-Create `AgentSandbox.Extensions.OpenTelemetry` package with TracerProvider and MeterProvider extensions.
-
-```csharp
-services.AddOpenTelemetry()
-    .WithTracing(b => b.AddSandboxInstrumentation())
-    .WithMetrics(b => b.AddSandboxInstrumentation());
-```
 
 ---
 
@@ -329,8 +296,8 @@ The following are explicitly out of scope:
 ### v1.1 (Next)
 - [ ] sed command
 - [ ] diff command
-- [ ] Structured logging integration
-- [ ] OpenTelemetry package
+- [x] Structured logging integration ✅
+- [x] OpenTelemetry package ✅
 
 ### v1.2
 - [ ] tar/zip commands
