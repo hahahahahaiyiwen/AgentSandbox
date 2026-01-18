@@ -214,7 +214,9 @@ AgentSandbox/
     ├── SANDBOX_DESIGN.md        # Sandbox instance internals
     ├── FILESYSTEM_DESIGN.md     # Filesystem design
     ├── SHELL_EXTENSIONS.md      # Shell extension system
-    └── OBSERVABILITY.md         # Monitoring and telemetry
+    ├── AGENT_SKILLS.md          # Agent Skills integration
+    ├── OBSERVABILITY.md         # Monitoring and telemetry
+    └── ROADMAP.md               # Feature roadmap and priorities
 ```
 
 ---
@@ -226,3 +228,4 @@ AgentSandbox/
 - [SHELL_EXTENSIONS.md](./SHELL_EXTENSIONS.md) - Shell extension architecture, built-in commands, and roadmap
 - [AGENT_SKILLS.md](./AGENT_SKILLS.md) - Agent Skills integration for structured skill packages
 - [OBSERVABILITY.md](./OBSERVABILITY.md) - Production monitoring, OpenTelemetry integration, metrics and tracing
+- [ROADMAP.md](./ROADMAP.md) - Feature roadmap, priorities, and version milestones
