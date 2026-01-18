@@ -1,7 +1,7 @@
 using AgentSandbox.Core;
 using Microsoft.ApplicationInsights;
 
-namespace AgentSandbox.Extensions.ApplicationInsights;
+namespace AgentSandbox.Extensions.Observability;
 
 /// <summary>
 /// Extension methods for integrating Sandbox with Application Insights.

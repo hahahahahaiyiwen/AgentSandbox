@@ -185,7 +185,7 @@ public class MyService
 Add observability to your sandbox with Application Insights:
 
 ```csharp
-using AgentSandbox.Extensions.ApplicationInsights;
+using AgentSandbox.Extensions.Observability;
 using Microsoft.ApplicationInsights;
 
 var telemetryClient = new TelemetryClient(configuration);
@@ -204,6 +204,71 @@ using var subscription = sandbox.AddApplicationInsights(telemetryClient, opts =>
     opts.TrackFileChanges = false; // Reduce noise
     opts.TrackLifecycle = true;
 });
+```
+
+### Use with Structured Logging (ILogger)
+
+Add structured logging using Microsoft.Extensions.Logging:
+
+```csharp
+using AgentSandbox.Core;
+using AgentSandbox.Core.Telemetry;
+using AgentSandbox.Extensions.Observability;
+using Microsoft.Extensions.Logging;
+
+// Create sandbox with telemetry enabled
+var sandbox = new Sandbox(options: new SandboxOptions
+{
+    Telemetry = new SandboxTelemetryOptions { Enabled = true }
+});
+
+// Subscribe structured logging observer
+using var subscription = sandbox.AddLogging(logger, opts =>
+{
+    opts.LogCommands = true;
+    opts.LogFileChanges = false; // Debug level, can be noisy
+    opts.LogLifecycle = true;
+    opts.LogSkills = true;
+});
+
+// Commands are now logged with structured properties:
+// Information: Command executed: mkdir in 0.5ms [SandboxId=abc123, ExitCode=0, Cwd=/]
+// Warning: Command failed: rm with exit code 1 in 0.3ms [SandboxId=abc123, Error=No such file]
+```
+
+### Use with OpenTelemetry
+
+Integrate with any OpenTelemetry-compatible backend (Jaeger, Zipkin, Prometheus, etc.):
+
+```csharp
+using AgentSandbox.Extensions.Observability;
+using OpenTelemetry;
+using OpenTelemetry.Trace;
+using OpenTelemetry.Metrics;
+
+// Configure tracing
+var tracerProvider = Sdk.CreateTracerProviderBuilder()
+    .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("MyApp"))
+    .AddSandboxInstrumentation()  // Add sandbox tracing
+    .AddOtlpExporter(o => o.Endpoint = new Uri("http://localhost:4317"))
+    .Build();
+
+// Configure metrics
+var meterProvider = Sdk.CreateMeterProviderBuilder()
+    .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("MyApp"))
+    .AddSandboxInstrumentation()  // Add sandbox metrics
+    .AddOtlpExporter(o => o.Endpoint = new Uri("http://localhost:4317"))
+    .Build();
+
+// Create sandbox with telemetry enabled
+var sandbox = new Sandbox(options: new SandboxOptions
+{
+    Telemetry = new SandboxTelemetryOptions { Enabled = true }
+});
+
+// Commands are now traced and metrics collected automatically
+sandbox.Execute("mkdir project");
+sandbox.Execute("echo 'Hello' > project/readme.txt");
 ```
 
 ## API Endpoints

@@ -125,10 +125,22 @@ public class SandboxShell : ISandboxShell, IShellContext
         if (string.IsNullOrWhiteSpace(commandLine))
             return ShellResult.Ok();
 
+        // Check for pipeline operator (not supported)
+        var pipeIndex = FindUnquotedOperator(commandLine, "|");
+        if (pipeIndex >= 0 && (pipeIndex + 1 >= commandLine.Length || commandLine[pipeIndex + 1] != '|'))
+        {
+            // Found | but not || (which would be logical OR, also unsupported but different error)
+            return ShellResult.Error(
+                "Pipelines are not supported. Workarounds:\n" +
+                "  - Use file arguments: 'grep pattern file.txt' instead of 'cat file.txt | grep pattern'\n" +
+                "  - Execute commands separately and process output programmatically\n" +
+                "  - Use shell scripts (.sh) to sequence commands");
+        }
+
         // Check for output redirection (ignore > inside quotes)
         string? redirectFile = null;
         bool appendMode = false;
-        var redirectIndex = FindRedirectIndex(commandLine, ">>");
+        var redirectIndex = FindUnquotedOperator(commandLine, ">>");
         if (redirectIndex > 0)
         {
             appendMode = true;
@@ -137,7 +149,7 @@ public class SandboxShell : ISandboxShell, IShellContext
         }
         else
         {
-            redirectIndex = FindRedirectIndex(commandLine, ">");
+            redirectIndex = FindUnquotedOperator(commandLine, ">");
             if (redirectIndex > 0)
             {
                 redirectFile = commandLine[(redirectIndex + 1)..].Trim().Trim('"', '\'');
@@ -273,9 +285,9 @@ public class SandboxShell : ISandboxShell, IShellContext
     }
 
     /// <summary>
-    /// Finds a redirect operator outside of quoted strings.
+    /// Finds an operator outside of quoted strings.
     /// </summary>
-    private int FindRedirectIndex(string commandLine, string op)
+    private int FindUnquotedOperator(string commandLine, string op)
     {
         var inQuote = false;
         var quoteChar = '\0';
