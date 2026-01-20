@@ -61,12 +61,12 @@ public static class KernelExtensions
         return AIFunctionFactory.Create(
             (string skillName) => GetSkillImplementation(sandbox, skillName),
             name: "GetSkill",
-            description: sandbox.GetMountedSkillsDescription());
+            description: sandbox.GetSkillsDescription());
     }
 
     private static string GetSkillImplementation(Sandbox sandbox, string skillName)
     {
-        var skill = sandbox.GetMountedSkills()
+        var skill = sandbox.GetSkills()
             .FirstOrDefault(s => s.Name.Equals(skillName, StringComparison.OrdinalIgnoreCase));
 
         if (skill?.Metadata?.Instructions == null)
