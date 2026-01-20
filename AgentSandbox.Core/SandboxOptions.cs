@@ -1,3 +1,4 @@
+using AgentSandbox.Core.Mounting;
 using AgentSandbox.Core.Shell;
 using AgentSandbox.Core.Skills;
 using AgentSandbox.Core.Telemetry;
@@ -31,15 +32,15 @@ public class SandboxOptions
     public IEnumerable<IShellCommand> ShellExtensions { get; set; } = Array.Empty<IShellCommand>();
 
     /// <summary>
-    /// Agent skills to mount into the sandbox filesystem.
-    /// Skills are copied to /.sandbox/skills/{name}/ at initialization.
+    /// Files to mount into the sandbox filesystem at initialization.
+    /// Each mount specifies a destination path and file source.
     /// </summary>
-    public IReadOnlyList<AgentSkill> Skills { get; set; } = [];
+    public IReadOnlyList<FileMountOptions> Mounts { get; set; } = [];
 
     /// <summary>
-    /// Base path where skills are mounted. Default: /.sandbox/skills
+    /// Agent skills configuration. Skills are mounted at initialization.
     /// </summary>
-    public string SkillsMountPath { get; set; } = "/.sandbox/skills";
+    public AgentSkillOptions AgentSkills { get; set; } = new();
 
     /// <summary>
     /// Telemetry configuration. Default: disabled (opt-in).
@@ -58,8 +59,12 @@ public class SandboxOptions
         Environment = new Dictionary<string, string>(Environment),
         WorkingDirectory = WorkingDirectory,
         ShellExtensions = ShellExtensions.ToArray(),
-        Skills = Skills.ToArray(),
-        SkillsMountPath = SkillsMountPath,
+        Mounts = Mounts.ToArray(),
+        AgentSkills = new AgentSkillOptions
+        {
+            Skills = AgentSkills.Skills.ToArray(),
+            MountPath = AgentSkills.MountPath
+        },
         Telemetry = Telemetry
     };
 }
