@@ -61,6 +61,14 @@ Navigate to `http://localhost:5000/swagger` to explore the API.
 
 ### Use as a Library
 
+```bash
+# Install the core library
+dotnet add package AgentSandbox.Core
+
+# Or install a specific version
+dotnet add package AgentSandbox.Core --version 1.3.0
+```
+
 ```csharp
 using AgentSandbox.Core;
 
@@ -516,7 +524,29 @@ dotnet pack AgentSandbox.Extensions -c Release -o ./nupkgs
 
 ### Reference in Your Project
 
-**Option 1: Local Package Source**
+**Option 1: Install from NuGet.org (Recommended)**
+
+The packages are published to NuGet.org. Install directly using the .NET CLI:
+
+```bash
+# Install the core library
+dotnet add package AgentSandbox.Core
+
+# Or install a specific version
+dotnet add package AgentSandbox.Core --version 1.3.0
+```
+
+Or add the package reference to your `.csproj`:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="AgentSandbox.Core" Version="1.3.0" />
+</ItemGroup>
+```
+
+View the package on NuGet.org: https://www.nuget.org/packages/AgentSandbox.Core
+
+**Option 2: Local Package Source**
 
 Add a local NuGet source pointing to the `nupkgs` folder:
 
@@ -529,7 +559,7 @@ dotnet add package AgentSandbox.Core
 dotnet add package AgentSandbox.Extensions  # For Semantic Kernel integration
 ```
 
-**Option 2: Direct Project Reference**
+**Option 3: Direct Project Reference**
 
 Reference the project directly in your `.csproj`:
 
@@ -541,7 +571,7 @@ Reference the project directly in your `.csproj`:
 </ItemGroup>
 ```
 
-**Option 3: nuget.config for Local Feed**
+**Option 4: nuget.config for Local Feed**
 
 Create or update `nuget.config` in your solution root:
 
