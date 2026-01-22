@@ -2,6 +2,16 @@
 
 An in-memory agent sandbox with virtual filesystem and command-line interface for server-side AI agents. Built with .NET.
 
+## Why This Exists
+
+Server-side AI agents face a fundamental gap: **no temporary stateful execution environment**.
+
+Client-side agents (Cursor, Claude Code, Copilot) leverage the user's machine—real filesystems, real shells, persistent state across turns. Server-side agents? They're stuck with stateless function calls, losing context between every interaction.
+
+This project provides what's missing: **an in-memory sandbox where agents can read, write, execute, and iterate**—just like they would on a local machine, but entirely server-side.
+
+📖 Read the full discussion: [Why Server-Side AI Agents Are Lagging Behind—And What We Need to Fix It](https://github.com/hahahahahaiyiwen/agent-sandbox/discussions/12)
+
 ## Features
 
 - **In-Memory Virtual Filesystem**: Full POSIX-like filesystem that never touches disk
@@ -407,9 +417,9 @@ git help
 ```csharp
 var options = new SandboxOptions
 {
-    MaxTotalSize = 100 * 1024 * 1024,  // 100 MB total storage
-    MaxFileSize = 10 * 1024 * 1024,     // 10 MB per file
-    MaxNodeCount = 10000,                // Max files/directories
+    MaxTotalSize = 128 * 1024,  // 128 KB total storage
+    MaxFileSize = 10 * 1024,     // 10 KB per file
+    MaxNodeCount = 1000,                // Max files/directories
     CommandTimeout = TimeSpan.FromSeconds(30),
     WorkingDirectory = "/workspace",
     Environment = new Dictionary<string, string>
@@ -466,11 +476,6 @@ AgentSandbox/
 ├── AgentSandbox.sln
 ├── nuget.config
 ├── README.md
-├── docs/                            # Design documentation
-│   ├── DESIGN.md
-│   ├── FILESYSTEM_DESIGN.md
-│   ├── SANDBOX_DESIGN.md
-│   └── SHELL_EXTENSIONS.md
 ├── AgentSandbox.Core/               # Core library
 │   ├── Sandbox.cs                   # Main sandbox class
 │   ├── SandboxManager.cs            # Multi-sandbox manager
@@ -520,75 +525,6 @@ dotnet pack AgentSandbox.Core -c Release -o ./nupkgs
 
 # Pack the Semantic Kernel integration (optional)
 dotnet pack AgentSandbox.Extensions -c Release -o ./nupkgs
-```
-
-### Reference in Your Project
-
-**Option 1: Install from NuGet.org (Recommended)**
-
-The packages are published to NuGet.org. Install directly using the .NET CLI:
-
-```bash
-# Install the core library
-dotnet add package AgentSandbox.Core
-
-# Or install a specific version
-dotnet add package AgentSandbox.Core --version 1.3.0
-```
-
-Or add the package reference to your `.csproj`:
-
-```xml
-<ItemGroup>
-  <PackageReference Include="AgentSandbox.Core" Version="1.3.0" />
-</ItemGroup>
-```
-
-View the package on NuGet.org: https://www.nuget.org/packages/AgentSandbox.Core
-
-**Option 2: Local Package Source**
-
-Add a local NuGet source pointing to the `nupkgs` folder:
-
-```bash
-# Add local source
-dotnet nuget add source ./path/to/AgentSandbox/nupkgs --name LocalPackages
-
-# Add package reference
-dotnet add package AgentSandbox.Core
-dotnet add package AgentSandbox.Extensions  # For Semantic Kernel integration
-```
-
-**Option 3: Direct Project Reference**
-
-Reference the project directly in your `.csproj`:
-
-```xml
-<ItemGroup>
-  <ProjectReference Include="../AgentSandbox/AgentSandbox.Core/AgentSandbox.Core.csproj" />
-  <!-- For Semantic Kernel integration -->
-  <ProjectReference Include="../AgentSandbox/AgentSandbox.Extensions/AgentSandbox.Extensions.csproj" />
-</ItemGroup>
-```
-
-**Option 4: nuget.config for Local Feed**
-
-Create or update `nuget.config` in your solution root:
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <packageSources>
-    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-    <add key="LocalPackages" value="./path/to/AgentSandbox/nupkgs" />
-  </packageSources>
-</configuration>
-```
-
-Then add the package reference:
-
-```bash
-dotnet add package AgentSandbox.Core
 ```
 
 ## License
