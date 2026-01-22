@@ -66,7 +66,7 @@ Navigate to `http://localhost:5000/swagger` to explore the API.
 dotnet add package AgentSandbox.Core
 
 # Or install a specific version
-dotnet add package AgentSandbox.Core --version 1.3.0
+dotnet add package AgentSandbox.Core --version 2.0.0
 ```
 
 ```csharp
