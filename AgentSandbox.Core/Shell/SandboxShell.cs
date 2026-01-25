@@ -1,8 +1,8 @@
+using AgentSandbox.Core.FileSystem;
+using AgentSandbox.Core.Shell.Commands;
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
-using AgentSandbox.Core.FileSystem;
-using AgentSandbox.Core.Shell.Commands;
 
 namespace AgentSandbox.Core.Shell;
 
@@ -11,25 +11,35 @@ namespace AgentSandbox.Core.Shell;
 /// Emulates common Unix commands without touching the real filesystem.
 /// Supports extensibility via IShellCommand registration.
 /// </summary>
-public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
+public class SandboxShell : IShellContext
 {
+    #region Fields
+
     private readonly IFileSystem _fs;
     private string _currentDirectory = "/";
     private readonly Dictionary<string, string> _environment = new();
     private readonly Dictionary<string, IShellCommand> _builtinCommands = new();
     private readonly Dictionary<string, IShellCommand> _extensionCommands = new();
 
-    public string CurrentDirectory
+    #endregion
+
+    #region IShellContext Explicit Implementation
+
+    IFileSystem IShellContext.FileSystem => _fs;
+    
+    string IShellContext.CurrentDirectory
     {
         get => _currentDirectory;
         set => _currentDirectory = FileSystemPath.Normalize(value);
     }
     
-    public IReadOnlyDictionary<string, string> Environment => _environment;
-    
-    // IShellContext implementation
-    IFileSystem IShellContext.FileSystem => _fs;
     IDictionary<string, string> IShellContext.Environment => _environment;
+    
+    string IShellContext.ResolvePath(string path) => ResolvePath(path);
+
+    #endregion
+
+    #region Constructor
 
     public SandboxShell(IFileSystem fileSystem)
     {
@@ -58,77 +68,11 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
         RegisterBuiltinCommand(new EnvCommand());
         RegisterBuiltinCommand(new ExportCommand());
         RegisterBuiltinCommand(new ClearCommand());
-        RegisterBuiltinCommand(new HelpCommand());
-    }
-
-    private void RegisterBuiltinCommand(IShellCommand command)
-    {
-        _builtinCommands[command.Name.ToLowerInvariant()] = command;
-        foreach (var alias in command.Aliases)
-        {
-            _builtinCommands[alias.ToLowerInvariant()] = command;
-        }
-    }
-
-    #region Command Registration
-
-    /// <summary>
-    /// Registers a shell command extension.
-    /// </summary>
-    public void RegisterCommand(IShellCommand command)
-    {
-        _extensionCommands[command.Name.ToLowerInvariant()] = command;
-        foreach (var alias in command.Aliases)
-        {
-            _extensionCommands[alias.ToLowerInvariant()] = command;
-        }
-    }
-
-    /// <summary>
-    /// Registers multiple shell command extensions.
-    /// </summary>
-    public void RegisterCommands(IEnumerable<IShellCommand> commands)
-    {
-        foreach (var command in commands)
-        {
-            RegisterCommand(command);
-        }
-    }
-
-    /// <summary>
-    /// Gets all available command names (built-in and extensions).
-    /// </summary>
-    public IEnumerable<string> GetAvailableCommands()
-    {
-        return _builtinCommands.Values.Select(c => c.Name).Distinct()
-            .Concat(_extensionCommands.Values.Select(c => c.Name).Distinct())
-            .OrderBy(c => c);
-    }
-
-    /// <summary>
-    /// Gets all extension commands for the help command.
-    /// </summary>
-    public IEnumerable<IShellCommand> GetExtensionCommands()
-    {
-        return _extensionCommands.Values.Distinct();
     }
 
     #endregion
 
-    /// <summary>
-    /// Resolves a path relative to the current directory.
-    /// </summary>
-    public string ResolvePath(string path)
-    {
-        if (string.IsNullOrEmpty(path)) return _currentDirectory;
-        if (path.StartsWith('/')) return FileSystemPath.Normalize(path);
-        
-        var combined = _currentDirectory == "/" 
-            ? "/" + path 
-            : _currentDirectory + "/" + path;
-        
-        return FileSystemPath.Normalize(combined);
-    }
+    #region Public Interfaces
 
     /// <summary>
     /// Executes a command string.
@@ -144,7 +88,6 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
         var pipeIndex = FindUnquotedOperator(commandLine, "|");
         if (pipeIndex >= 0 && (pipeIndex + 1 >= commandLine.Length || commandLine[pipeIndex + 1] != '|'))
         {
-            // Found | but not || (which would be logical OR, also unsupported but different error)
             return ShellResult.Error(
                 "Pipelines are not supported. Workarounds:\n" +
                 "  - Use file arguments: 'grep pattern file.txt' instead of 'cat file.txt | grep pattern'\n" +
@@ -191,7 +134,7 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
             }
         }
 
-        // Simple command parsing (doesn't handle all edge cases)
+        // Parse command line
         var (parts, wasQuoted) = ParseCommandLineWithQuoteInfo(commandLine);
         if (parts.Length == 0)
             return ShellResult.Ok();
@@ -235,12 +178,23 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
                 result = ShellResult.Error($"sh: {ex.Message}");
             }
         }
+        // Handle 'help' command specially (needs access to extension commands)
+        else if (cmdLower == "help")
+        {
+            if (args.Length > 0 && args[0] == "-h")
+            {
+                result = ShellResult.Ok("help - Show available commands\n\nUsage: help");
+            }
+            else
+            {
+                result = ExecuteHelpCommand();
+            }
+        }
         // Check built-in commands first
         else if (_builtinCommands.TryGetValue(cmdLower, out var command))
         {
             try
             {
-                // Check for -h help argument
                 if (args.Length > 0 && args[0] == "-h")
                 {
                     result = ShellResult.Ok($"{command.Name} - {command.Description}\n\nUsage: {command.Usage}");
@@ -286,7 +240,7 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
                 {
                     _fs.WriteFile(path, result.Stdout);
                 }
-                result = ShellResult.Ok(); // Clear stdout since it was redirected
+                result = ShellResult.Ok();
             }
             catch (Exception ex)
             {
@@ -298,6 +252,77 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
         result.Duration = sw.Elapsed;
         return result;
     }
+
+    /// <summary>
+    /// Registers a shell command extension.
+    /// </summary>
+    public void RegisterCommand(IShellCommand command)
+    {
+        _extensionCommands[command.Name.ToLowerInvariant()] = command;
+        foreach (var alias in command.Aliases)
+        {
+            _extensionCommands[alias.ToLowerInvariant()] = command;
+        }
+    }
+
+    /// <summary>
+    /// Registers multiple shell command extensions.
+    /// </summary>
+    public void RegisterCommands(IEnumerable<IShellCommand> commands)
+    {
+        foreach (var command in commands)
+        {
+            RegisterCommand(command);
+        }
+    }
+
+    /// <summary>
+    /// Gets all available command names (built-in and extensions).
+    /// </summary>
+    public IEnumerable<string> GetAvailableCommands()
+    {
+        return _builtinCommands.Values.Select(c => c.Name).Distinct()
+            .Concat(_extensionCommands.Values.Select(c => c.Name).Distinct())
+            .Concat(new[] { "sh", "help" })
+            .OrderBy(c => c);
+    }
+
+    #endregion
+
+    #region Internal Members (for Sandbox access)
+
+    /// <summary>
+    /// Current working directory.
+    /// </summary>
+    internal string CurrentDirectory
+    {
+        get => _currentDirectory;
+        set => _currentDirectory = FileSystemPath.Normalize(value);
+    }
+    
+    /// <summary>
+    /// Environment variables (read-only).
+    /// </summary>
+    internal IReadOnlyDictionary<string, string> Environment => _environment;
+
+    /// <summary>
+    /// Resolves a path relative to the current directory.
+    /// </summary>
+    internal string ResolvePath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return _currentDirectory;
+        if (path.StartsWith('/')) return FileSystemPath.Normalize(path);
+        
+        var combined = _currentDirectory == "/" 
+            ? "/" + path 
+            : _currentDirectory + "/" + path;
+        
+        return FileSystemPath.Normalize(combined);
+    }
+
+    #endregion
+
+    #region Private Methods - Command Parsing
 
     private (string[] Parts, bool[] WasQuoted) ParseCommandLineWithQuoteInfo(string commandLine)
     {
@@ -314,7 +339,6 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
 
             if (inQuote)
             {
-                // Handle escape sequences inside quotes
                 if (c == '\\' && i + 1 < commandLine.Length)
                 {
                     var next = commandLine[i + 1];
@@ -322,10 +346,9 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
                     if (escaped.HasValue)
                     {
                         current.Append(escaped.Value);
-                        i++; // Skip the next character
+                        i++;
                         continue;
                     }
-                    // Not a recognized escape - treat backslash literally
                 }
 
                 if (c == quoteChar)
@@ -345,16 +368,14 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
             }
             else if (c == '\\' && i + 1 < commandLine.Length)
             {
-                // Handle escape sequences outside quotes
                 var next = commandLine[i + 1];
                 var escaped = GetEscapedChar(next);
                 if (escaped.HasValue)
                 {
                     current.Append(escaped.Value);
-                    i++; // Skip the next character
+                    i++;
                     continue;
                 }
-                // Not a recognized escape - treat backslash literally
                 current.Append(c);
             }
             else if (char.IsWhiteSpace(c))
@@ -382,9 +403,6 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
         return (parts.ToArray(), wasQuoted.ToArray());
     }
 
-    /// <summary>
-    /// Returns the character for a recognized escape sequence, or null if not recognized.
-    /// </summary>
     private static char? GetEscapedChar(char c)
     {
         return c switch
@@ -400,9 +418,54 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
         };
     }
 
-    /// <summary>
-    /// Expands glob patterns in arguments. Quoted arguments are not expanded.
-    /// </summary>
+    private int FindUnquotedOperator(string commandLine, string op)
+    {
+        var inQuote = false;
+        var quoteChar = '\0';
+
+        for (int i = 0; i <= commandLine.Length - op.Length; i++)
+        {
+            var c = commandLine[i];
+
+            if (inQuote)
+            {
+                if (c == quoteChar) inQuote = false;
+            }
+            else if (c == '"' || c == '\'')
+            {
+                inQuote = true;
+                quoteChar = c;
+            }
+            else if (commandLine.Substring(i, op.Length) == op)
+            {
+                if (op == ">" && i + 1 < commandLine.Length && commandLine[i + 1] == '>')
+                    continue;
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private string ExpandVariables(string text)
+    {
+        text = Regex.Replace(text, @"\$([0-9@#*])", m =>
+        {
+            var varName = m.Groups[1].Value;
+            return _environment.TryGetValue(varName, out var value) ? value : "";
+        });
+        
+        return Regex.Replace(text, @"\$(\w+)", m =>
+        {
+            var varName = m.Groups[1].Value;
+            return _environment.TryGetValue(varName, out var value) ? value : "";
+        });
+    }
+
+    #endregion
+
+    #region Private Methods - Glob Expansion
+
     private string[] ExpandGlobs(string[] args, bool[] wasQuoted)
     {
         var result = new List<string>();
@@ -412,21 +475,18 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
             var arg = args[i];
             var quoted = i < wasQuoted.Length && wasQuoted[i];
 
-            // Don't expand if quoted or if it's a flag
             if (quoted || arg.StartsWith("-"))
             {
                 result.Add(arg);
                 continue;
             }
 
-            // Check if contains glob characters
             if (!ContainsGlobChars(arg))
             {
                 result.Add(arg);
                 continue;
             }
 
-            // Expand the glob
             var matches = ExpandGlobPattern(arg);
             if (matches.Count > 0)
             {
@@ -434,7 +494,6 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
             }
             else
             {
-                // No matches - keep original (like bash behavior)
                 result.Add(arg);
             }
         }
@@ -447,20 +506,14 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
         return s.Contains('*') || s.Contains('?') || s.Contains('[');
     }
 
-    /// <summary>
-    /// Expands a glob pattern against the virtual filesystem.
-    /// </summary>
     private List<string> ExpandGlobPattern(string pattern)
     {
         var results = new List<string>();
-
-        // Determine base path and pattern
         string basePath;
         string globPattern;
 
         if (pattern.StartsWith("/"))
         {
-            // Absolute path - find the non-glob prefix
             var lastSlashBeforeGlob = FindLastSlashBeforeGlob(pattern);
             if (lastSlashBeforeGlob == 0)
             {
@@ -475,7 +528,6 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
         }
         else
         {
-            // Relative path
             var slashIndex = FindLastSlashBeforeGlob(pattern);
             if (slashIndex < 0)
             {
@@ -490,14 +542,12 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
             }
         }
 
-        // If pattern contains path separators, we need recursive matching
         if (globPattern.Contains('/'))
         {
             ExpandGlobRecursive(basePath, globPattern.Split('/'), 0, results, pattern.StartsWith("/"));
         }
         else
         {
-            // Simple case - single level glob
             ExpandGlobSingleLevel(basePath, globPattern, results, pattern.StartsWith("/"));
         }
 
@@ -510,18 +560,15 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
         int lastSlash = -1;
         for (int i = 0; i < pattern.Length; i++)
         {
-            if (pattern[i] == '/')
-                lastSlash = i;
-            if (pattern[i] == '*' || pattern[i] == '?' || pattern[i] == '[')
-                break;
+            if (pattern[i] == '/') lastSlash = i;
+            if (pattern[i] == '*' || pattern[i] == '?' || pattern[i] == '[') break;
         }
         return lastSlash;
     }
 
     private void ExpandGlobSingleLevel(string basePath, string pattern, List<string> results, bool absolute)
     {
-        if (!_fs.IsDirectory(basePath))
-            return;
+        if (!_fs.IsDirectory(basePath)) return;
 
         var regex = GlobToRegex(pattern);
 
@@ -530,29 +577,19 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
             if (regex.IsMatch(name))
             {
                 var fullPath = basePath == "/" ? "/" + name : basePath + "/" + name;
-                // Return relative or absolute based on input
-                if (absolute)
-                {
-                    results.Add(fullPath);
-                }
-                else
-                {
-                    results.Add(GetRelativePath(fullPath));
-                }
+                results.Add(absolute ? fullPath : GetRelativePath(fullPath));
             }
         }
     }
 
     private void ExpandGlobRecursive(string basePath, string[] patternParts, int partIndex, List<string> results, bool absolute)
     {
-        if (partIndex >= patternParts.Length)
-            return;
+        if (partIndex >= patternParts.Length) return;
 
         var pattern = patternParts[partIndex];
         var isLast = partIndex == patternParts.Length - 1;
 
-        if (!_fs.IsDirectory(basePath))
-            return;
+        if (!_fs.IsDirectory(basePath)) return;
 
         var regex = GlobToRegex(pattern);
 
@@ -564,14 +601,7 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
 
                 if (isLast)
                 {
-                    if (absolute)
-                    {
-                        results.Add(fullPath);
-                    }
-                    else
-                    {
-                        results.Add(GetRelativePath(fullPath));
-                    }
+                    results.Add(absolute ? fullPath : GetRelativePath(fullPath));
                 }
                 else if (_fs.IsDirectory(fullPath))
                 {
@@ -584,14 +614,10 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
     private string GetRelativePath(string absolutePath)
     {
         if (_currentDirectory == "/")
-        {
             return absolutePath.TrimStart('/');
-        }
 
         if (absolutePath.StartsWith(_currentDirectory + "/"))
-        {
             return absolutePath[(_currentDirectory.Length + 1)..];
-        }
 
         return absolutePath;
     }
@@ -606,79 +632,69 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
         return new Regex(regexPattern, RegexOptions.Compiled);
     }
 
-    /// <summary>
-    /// Finds an operator outside of quoted strings.
-    /// </summary>
-    private int FindUnquotedOperator(string commandLine, string op)
+    #endregion
+
+    #region Private Methods - Script Execution and Help
+
+    private void RegisterBuiltinCommand(IShellCommand command)
     {
-        var inQuote = false;
-        var quoteChar = '\0';
-
-        for (int i = 0; i <= commandLine.Length - op.Length; i++)
+        _builtinCommands[command.Name.ToLowerInvariant()] = command;
+        foreach (var alias in command.Aliases)
         {
-            var c = commandLine[i];
+            _builtinCommands[alias.ToLowerInvariant()] = command;
+        }
+    }
 
-            if (inQuote)
+    private ShellResult ExecuteHelpCommand()
+    {
+        var output = new StringBuilder();
+        output.AppendLine("Available commands:");
+        output.AppendLine("  pwd              Print working directory");
+        output.AppendLine("  cd [dir]         Change directory");
+        output.AppendLine("  ls [-la] [path]  List directory contents");
+        output.AppendLine("  cat <file>       Display file contents");
+        output.AppendLine("  echo [text]      Print text");
+        output.AppendLine("  mkdir [-p] <dir> Create directory");
+        output.AppendLine("  rm [-rf] <path>  Remove file or directory");
+        output.AppendLine("  cp <src> <dest>  Copy file or directory");
+        output.AppendLine("  mv <src> <dest>  Move/rename file or directory");
+        output.AppendLine("  touch <file>     Create empty file or update timestamp");
+        output.AppendLine("  head [-n N] <f>  Show first N lines");
+        output.AppendLine("  tail [-n N] <f>  Show last N lines");
+        output.AppendLine("  wc <file>        Count lines, words, bytes");
+        output.AppendLine("  grep <pat> <f>   Search for pattern in files");
+        output.AppendLine("  find [path]      Find files");
+        output.AppendLine("  env              Show environment variables");
+        output.AppendLine("  export VAR=val   Set environment variable");
+        output.AppendLine("  sh <script>      Execute shell script");
+        output.AppendLine("  help             Show this help");
+        output.AppendLine();
+        output.AppendLine("Use '<command> -h' for detailed help on a specific command.");
+
+        // Add extension commands if any
+        var extensions = _extensionCommands.Values.Distinct().OrderBy(c => c.Name).ToList();
+        if (extensions.Count > 0)
+        {
+            output.AppendLine();
+            output.AppendLine("Extension commands:");
+            foreach (var cmd in extensions)
             {
-                if (c == quoteChar)
-                {
-                    inQuote = false;
-                }
-            }
-            else if (c == '"' || c == '\'')
-            {
-                inQuote = true;
-                quoteChar = c;
-            }
-            else if (commandLine.Substring(i, op.Length) == op)
-            {
-                // For single >, make sure it's not part of >>
-                if (op == ">" && i + 1 < commandLine.Length && commandLine[i + 1] == '>')
-                {
-                    continue;
-                }
-                return i;
+                output.AppendLine($"  {cmd.Name,-16} {cmd.Description}");
             }
         }
 
-        return -1;
+        return ShellResult.Ok(output.ToString().TrimEnd());
     }
 
-    private string ExpandVariables(string text)
-    {
-        // First handle special parameters: $@, $*, $#, $0-$9
-        text = Regex.Replace(text, @"\$([0-9@#*])", m =>
-        {
-            var varName = m.Groups[1].Value;
-            return _environment.TryGetValue(varName, out var value) ? value : "";
-        });
-        
-        // Then handle named variables: $VAR, $HOME, etc.
-        return Regex.Replace(text, @"\$(\w+)", m =>
-        {
-            var varName = m.Groups[1].Value;
-            return _environment.TryGetValue(varName, out var value) ? value : "";
-        });
-    }
-
-    #region Script Execution
-
-    /// <summary>
-    /// Handles the 'sh' command - loads and executes a shell script file.
-    /// </summary>
     private ShellResult ExecuteShCommand(string[] args)
     {
         if (args.Length == 0)
-        {
             return ShellResult.Error("sh: missing script path\nUsage: sh <script.sh> [args...]");
-        }
 
         var scriptPath = ResolvePath(args[0]);
 
         if (!_fs.Exists(scriptPath) || !_fs.IsFile(scriptPath))
-        {
             return ShellResult.Error($"sh: {args[0]}: No such file");
-        }
 
         var scriptContent = _fs.ReadFile(scriptPath, Encoding.UTF8);
         var scriptArgs = args.Skip(1).ToArray();
@@ -686,12 +702,8 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
         return ExecuteScript(scriptContent, scriptArgs);
     }
 
-    /// <summary>
-    /// Executes a shell script with the given arguments.
-    /// </summary>
     private ShellResult ExecuteScript(string script, string[] args)
     {
-        // Save current environment state for positional parameters
         var savedParams = new Dictionary<string, string?>();
         var paramNames = new[] { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "@", "#", "*" };
         foreach (var name in paramNames)
@@ -701,12 +713,10 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
 
         try
         {
-            // Set positional parameters $1, $2, etc.
             for (int i = 0; i < args.Length && i < 9; i++)
             {
                 _environment[$"{i + 1}"] = args[i];
             }
-            // Clear unused positional parameters
             for (int i = args.Length; i < 9; i++)
             {
                 _environment.Remove($"{i + 1}");
@@ -723,7 +733,6 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
             {
                 var trimmed = line.Trim();
 
-                // Skip empty lines and comments
                 if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith('#'))
                     continue;
 
@@ -731,12 +740,10 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
 
                 if (!string.IsNullOrEmpty(result.Stdout))
                 {
-                    if (output.Length > 0)
-                        output.AppendLine();
+                    if (output.Length > 0) output.AppendLine();
                     output.Append(result.Stdout);
                 }
 
-                // Stop on error (set -e behavior)
                 if (result.ExitCode != 0)
                 {
                     return new ShellResult
@@ -752,7 +759,6 @@ public class SandboxShell : ISandboxShell, IShellContext, IExtendedShellContext
         }
         finally
         {
-            // Restore positional parameters
             foreach (var (name, value) in savedParams)
             {
                 if (value != null)
