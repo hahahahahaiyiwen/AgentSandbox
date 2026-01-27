@@ -1,6 +1,6 @@
 using AgentSandbox.Core.Telemetry;
 
-namespace AgentSandbox.Playground;
+namespace AgentSandbox.InteractiveSandbox;
 
 /// <summary>
 /// A console-based telemetry observer that outputs sandbox events with colored formatting.

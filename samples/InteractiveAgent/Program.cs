@@ -1,4 +1,4 @@
-using AgentSandbox.AgentPlayground;
+using AgentSandbox.InteractiveAgent;
 using AgentSandbox.Core;
 using AgentSandbox.Core.Shell;
 using AgentSandbox.Core.Shell.Extensions;

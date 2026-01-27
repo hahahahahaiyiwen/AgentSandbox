@@ -29,7 +29,7 @@ This project provides what's missing: **an in-memory sandbox where agents can re
 
 ```bash
 cd AgentSandbox
-dotnet run --project AgentSandbox.Playground
+dotnet run --project samples/InteractiveSandbox
 ```
 
 This starts an interactive shell where you can execute commands:
@@ -49,7 +49,7 @@ Requires an Azure OpenAI deployment.
 ```bash
 setx AZURE_OPENAI_ENDPOINT "https://<your-resource>.openai.azure.com"
 setx AZURE_OPENAI_DEPLOYMENT "<your-deployment-name>"
-dotnet run --project AgentSandbox.AgentPlayground
+dotnet run --project samples/InteractiveAgent
 ```
 
 ```
@@ -511,8 +511,11 @@ AgentSandbox/
 │       └── GitCommand.cs            # Simulated git
 ├── AgentSandbox.Extensions/     # Semantic Kernel integration
 │   └── KernelExtensions.cs          # Kernel builder extensions
-├── AgentSandbox.Playground/         # Interactive console app
-│   └── Program.cs
+├── samples/
+│   ├── InteractiveSandbox/          # Interactive console app
+│   │   └── Program.cs
+│   └── InteractiveAgent/            # Interactive agent chat app
+│       └── Program.cs
 ├── AgentSandbox.Api/                # REST API
 │   ├── Endpoints/
 │   │   └── SandboxEndpoints.cs      # API routes
