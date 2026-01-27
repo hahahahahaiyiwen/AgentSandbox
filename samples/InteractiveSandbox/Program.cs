@@ -3,7 +3,7 @@ using AgentSandbox.Core.Shell;
 using AgentSandbox.Core.Shell.Extensions;
 using AgentSandbox.Core.Skills;
 using AgentSandbox.Core.Telemetry;
-using AgentSandbox.Playground;
+using AgentSandbox.InteractiveSandbox;
 
 // Get the skills folder path relative to the executable
 var skillsPath = Path.Combine(AppContext.BaseDirectory, "Skills");
